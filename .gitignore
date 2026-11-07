@@ -1,0 +1,15 @@
+node_modules/
+dist/
+release/
+.venv-backend/
+.pyi-build/
+.pyinstaller/
+src-tauri/target/
+src-tauri/binaries/apex-backend-*
+.DS_Store
+__pycache__/
+*.pyc
+_original_backup/
+*.key
+_signing/
+src-tauri/gen/
