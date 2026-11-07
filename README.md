@@ -42,7 +42,12 @@ It's built to behave like a European retail CFD / margin broker, so you don't ge
 | UI | React + TypeScript + Vite, charts by lightweight-charts | `src/` |
 | Backend | Python FastAPI, bundled as a sidecar with PyInstaller | `backend/` |
 
-The Tauri shell starts the Python backend on a random local port with a one-time token, and the UI talks to it over `127.0.0.1`.
+The Tauri shell owns the Python backend:
+
+- It starts it on a random local port with a one-time token and waits until it answers. If it can't start, the app shows the real error and a Try again button instead of a dead window.
+- The UI never talks HTTP itself. Every call goes through a Rust command (`api` in `src-tauri/src/main.rs`), so macOS WebKit can't block it.
+- The backend runs in its own process group (macOS) / job object (Windows). PyInstaller's one-file build is two processes, and quitting or updating now kills both. The backend also exits by itself if the app is force-quit or crashes (`--parent-pid`), and the Windows installer stops any leftover `apex-backend.exe` before copying files (`src-tauri/windows/hooks.nsh`).
+- Updates download in the Rust shell, which stops the backend right before the installer runs.
 
 Your data (paper account, settings, logs) lives here:
 

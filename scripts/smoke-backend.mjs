@@ -31,6 +31,10 @@ if (fromSource) {
   args = ["--port", String(port)];
 }
 
+// Stand-in for the APEX window: the backend must exit on its own once this is gone.
+const fakeParent = spawn(process.execPath, ["-e", "setTimeout(() => {}, 600000)"], { stdio: "ignore" });
+args.push("--parent-pid", String(fakeParent.pid));
+
 const child = spawn(cmd, args, { cwd, env: { ...process.env, APEX_TOKEN: token, APEX_DATA: data }, stdio: "inherit" });
 let failed = false;
 child.on("exit", (code) => { if (!done) { console.error(`Backend exited early with code ${code}`); failed = true; } });
@@ -55,11 +59,20 @@ try {
   if (typeof session.open !== "boolean") throw new Error("market session check failed (timezone data missing?)");
   await get("/api/strategies");
   console.log(`Backend OK: equity ${state.equity}, EURUSD ${session.open ? "open" : "closed"}, strategies load`);
+
+  // Orphan check: kill the fake parent, the backend (and on one-file builds its launcher) must quit.
+  done = true;
+  const exited = new Promise((r) => child.once("exit", () => r(true)));
+  fakeParent.kill();
+  const quit = await Promise.race([exited, new Promise((r) => setTimeout(() => r(false), 15000))]);
+  if (!quit) throw new Error("Backend kept running after the app went away (orphaned process)");
+  console.log("Backend exits by itself when the app is gone");
 } catch (error) {
   console.error(`Smoke test failed: ${error.message}`);
   failed = true;
 } finally {
   done = true;
   child.kill();
+  fakeParent.kill();
   setTimeout(() => { try { rmSync(data, { recursive: true, force: true }); } catch {} process.exit(failed ? 1 : 0); }, 1500);
 }

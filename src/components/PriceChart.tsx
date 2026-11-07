@@ -3,8 +3,8 @@ import {
   CandlestickSeries, ColorType, CrosshairMode, HistogramSeries, IPriceLine, ISeriesApi, LineSeries, LineStyle,
   UTCTimestamp, createChart, IChartApi,
 } from "lightweight-charts";
-import type { Candle } from "../types";
-import { price as fmtPrice } from "../format";
+import type { Candle } from "../lib/types";
+import { price as fmtPrice } from "../lib/format";
 
 export type Guide = { key: string; price: number; color: string; title: string; draggable?: boolean; dashed?: boolean };
 
@@ -16,6 +16,7 @@ type Props = {
   onGuideDrop?: (key: string, price: number) => void;
   loading?: boolean;
   error?: string;
+  theme?: string;
 };
 
 function ema(values: number[], period: number) {
@@ -27,7 +28,32 @@ function ema(values: number[], period: number) {
 
 const css = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
-export default function PriceChart({ candles, emas = [], guides, onGuideDrag, onGuideDrop, loading, error }: Props) {
+function palette() {
+  return {
+    text: css("--text-3") || "#8e8e93", grid: css("--grid") || "rgba(255,255,255,0.04)", line: css("--hairline") || "rgba(255,255,255,0.08)",
+    up: css("--up") || "#30d158", down: css("--down") || "#ff453a", crosshair: css("--text-3") || "#8e8e93",
+  };
+}
+
+function chartOptions() {
+  const c = palette();
+  return {
+    layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: c.text, fontFamily: css("--font") || "system-ui, sans-serif", fontSize: 11, attributionLogo: false },
+    grid: { vertLines: { color: c.grid }, horzLines: { color: c.grid } },
+    rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.08, bottom: 0.2 } },
+    timeScale: { borderVisible: false, timeVisible: true, secondsVisible: false, rightOffset: 6 },
+    crosshair: { mode: CrosshairMode.Normal, vertLine: { color: c.crosshair, labelBackgroundColor: c.crosshair }, horzLine: { color: c.crosshair, labelBackgroundColor: c.crosshair } },
+  };
+}
+
+const alpha = (hex: string, a: number) => {
+  const m = hex.match(/^#([0-9a-f]{6})$/i);
+  if (!m) return hex;
+  const n = parseInt(m[1], 16);
+  return `rgba(${n >> 16}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+};
+
+export default function PriceChart({ candles, emas = [], guides, onGuideDrag, onGuideDrop, loading, error, theme }: Props) {
   const box = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
   const candleSeries = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -42,16 +68,10 @@ export default function PriceChart({ candles, emas = [], guides, onGuideDrag, on
   // Create the chart once.
   useEffect(() => {
     if (!box.current) return;
-    const c = createChart(box.current, {
-      autoSize: true,
-      layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: css("--text-3") || "#70757f", fontFamily: "Inter, system-ui, sans-serif", fontSize: 11, attributionLogo: false },
-      grid: { vertLines: { color: css("--grid") || "#1a2230" }, horzLines: { color: css("--grid") || "#1a2230" } },
-      rightPriceScale: { borderColor: css("--line") || "#232c3a", scaleMargins: { top: 0.08, bottom: 0.22 } },
-      timeScale: { borderColor: css("--line") || "#232c3a", timeVisible: true, secondsVisible: false, rightOffset: 6 },
-      crosshair: { mode: CrosshairMode.Normal },
-    });
+    const c = createChart(box.current, { autoSize: true, ...chartOptions() });
+    const col = palette();
     candleSeries.current = c.addSeries(CandlestickSeries, {
-      upColor: "#26a69a", downColor: "#ef5350", borderVisible: false, wickUpColor: "#26a69a", wickDownColor: "#ef5350",
+      upColor: col.up, downColor: col.down, borderVisible: false, wickUpColor: col.up, wickDownColor: col.down,
       priceFormat: { type: "custom", formatter: (p: number) => fmtPrice(p), minMove: 0.00001 },
       // Stretch the price scale so stop/target lines never sit off-screen.
       autoscaleInfoProvider: (original: () => { priceRange: { minValue: number; maxValue: number } } | null) => {
@@ -65,10 +85,21 @@ export default function PriceChart({ candles, emas = [], guides, onGuideDrag, on
       },
     });
     volumeSeries.current = c.addSeries(HistogramSeries, { priceScaleId: "vol", priceFormat: { type: "volume" }, lastValueVisible: false, priceLineVisible: false });
-    c.priceScale("vol").applyOptions({ scaleMargins: { top: 0.84, bottom: 0 } });
+    c.priceScale("vol").applyOptions({ scaleMargins: { top: 0.88, bottom: 0 } });
     chart.current = c;
     return () => { c.remove(); chart.current = null; candleSeries.current = null; volumeSeries.current = null; emaSeries.current = []; lines.current.clear(); };
   }, []);
+
+  // Light / dark switch: recolour in place.
+  const colors = useRef(palette());
+  useEffect(() => {
+    const c = chart.current;
+    if (!c) return;
+    c.applyOptions(chartOptions());
+    colors.current = palette();
+    const { up, down } = colors.current;
+    candleSeries.current?.applyOptions({ upColor: up, downColor: down, wickUpColor: up, wickDownColor: down });
+  }, [theme]);
 
   // Candles + volume.
   const lastKey = useRef("");
@@ -76,11 +107,11 @@ export default function PriceChart({ candles, emas = [], guides, onGuideDrag, on
     const s = candleSeries.current, v = volumeSeries.current;
     if (!s || !v) return;
     s.setData(candles.map((k) => ({ time: k.t as UTCTimestamp, open: k.o, high: k.h, low: k.l, close: k.c })));
-    v.setData(candles.map((k) => ({ time: k.t as UTCTimestamp, value: k.v, color: k.c >= k.o ? "rgba(38,166,154,0.35)" : "rgba(239,83,80,0.35)" })));
+    v.setData(candles.map((k) => ({ time: k.t as UTCTimestamp, value: k.v, color: alpha(k.c >= k.o ? colors.current.up : colors.current.down, 0.18) })));
     // Only snap the view when the instrument/timeframe changes, not on every refresh.
     const key = `${candles.length > 0 ? candles[0].t : 0}`;
     if (key !== lastKey.current) { chart.current?.timeScale().fitContent(); lastKey.current = key; }
-  }, [candles]);
+  }, [candles, theme]);
 
   // EMA overlays.
   useEffect(() => {
