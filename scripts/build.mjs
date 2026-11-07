@@ -63,7 +63,9 @@ function buildBackend() {
     "--hidden-import", "modules.strategy_library", "--hidden-import", "modules.paper_engine", "--hidden-import", "modules.market_data",
     "--hidden-import", "modules.instruments", "--hidden-import", "modules.signals", "--hidden-import", "modules.backtest",
     // Windows has no system timezone database; bundle it so market hours work everywhere.
-    "--collect-data", "tzdata", "--hidden-import", "tzdata",
+    "--collect-data", "tzdata", "--hidden-import", "tzdata", "--collect-data", "certifi",
+    // Not used; keeps the binary smaller so it unpacks faster on every launch.
+    "--exclude-module", "tkinter",
     "--distpath", binDir, "--workpath", ".pyi-build", "--specpath", ".pyi-build", join("backend", "main.py")]);
   const ext = isWin ? ".exe" : "";
   renameSync(join(binDir, `apex-backend${ext}`), join(binDir, `apex-backend-${triple}${ext}`));

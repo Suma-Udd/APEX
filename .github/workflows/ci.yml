@@ -20,7 +20,7 @@ jobs:
       - name: Install
         run: |
           npm ci
-          python -m pip install fastapi uvicorn tzdata httpx
+          python -m pip install fastapi uvicorn tzdata certifi httpx
       - name: Typecheck and build the UI
         run: |
           npm run typecheck

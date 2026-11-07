@@ -1,7 +1,14 @@
 """Public market-data adapters. No broker APIs or trading credentials are used."""
 from __future__ import annotations
-import json, time, urllib.parse, urllib.request
+import json, ssl, time, urllib.parse, urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+
+try:  # Python from python.org on macOS ships without system certificates; certifi has them.
+    import certifi
+    SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
+except Exception:  # pragma: no cover
+    SSL_CONTEXT = ssl.create_default_context()
 
 BINANCE = "https://api.binance.com/api/v3"
 YAHOO = "https://query1.finance.yahoo.com/v8/finance/chart/"
@@ -27,7 +34,7 @@ def market_for(symbol: str) -> str:
 
 def _get(url: str):
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 APEX-PaperTrader/1.0", "Accept": "application/json"})
-    with urllib.request.urlopen(req, timeout=12) as r:
+    with urllib.request.urlopen(req, timeout=12, context=SSL_CONTEXT) as r:
         return json.loads(r.read().decode("utf-8"))
 
 
@@ -43,6 +50,19 @@ def quote(symbol: str):
     q = _fetch_quote(symbol)
     _QUOTE_CACHE[symbol] = (time.time(), q)
     return dict(q)
+
+
+_POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="apex-quotes")
+
+
+def quotes(symbols):
+    """Quotes for many symbols at once (the watchlist). A failing symbol is skipped."""
+    def one(sym):
+        try:
+            return quote(sym)
+        except Exception:
+            return None
+    return [q for q in _POOL.map(one, symbols[:40]) if q]
 
 
 def _fetch_quote(symbol: str):

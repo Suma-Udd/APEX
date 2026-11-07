@@ -179,7 +179,7 @@ def provider_request(path: str, method="GET", payload=None):
         "Authorization": f"Bearer {settings['api_key']}", "Content-Type": "application/json", "Accept": "application/json"
     })
     try:
-        with urllib.request.urlopen(request, timeout=90) as response:
+        with urllib.request.urlopen(request, timeout=90, context=market_data.SSL_CONTEXT) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         if exc.code in (401, 403):
@@ -773,14 +773,39 @@ def market_session(symbol: str):
     return instruments.session_info(symbol)
 
 
+def market_error(exc: Exception, what: str) -> str:
+    """Short, human message for a failed market data call (the raw error goes to the log)."""
+    try:  # file only: the Activity list shouldn't fill up while offline
+        with open(DATA / "logs" / "market-errors.log", "a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {what}: {str(exc)[:300]}\n")
+    except OSError:
+        pass
+    if isinstance(exc, urllib.error.HTTPError):
+        return f"No market data for {what}" if exc.code in (400, 404) else "The market data provider is busy. Trying again shortly."
+    if isinstance(exc, (urllib.error.URLError, TimeoutError, OSError)):
+        return "Can't load prices. Check your internet connection."
+    return f"Market data unavailable for {what}"
+
+
 @app.get("/api/market/quote")
 def market_quote(symbol: str):
     try:
         q = market_data.quote(symbol)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Market data unavailable for {symbol}: {str(exc)[:220]}")
+        raise HTTPException(status_code=502, detail=market_error(exc, symbol))
     bid, ask = instruments.bid_ask(q)
     return {**q, "bid": bid, "ask": ask, "session": instruments.session_info(q["symbol"])}
+
+
+@app.get("/api/market/quotes")
+def market_quotes(symbols: str):
+    """Watchlist: last price and daily change for up to 40 comma-separated symbols."""
+    wanted = [x.strip() for x in symbols.split(",") if x.strip()]
+    out = []
+    for q in market_data.quotes(wanted):
+        bid, ask = instruments.bid_ask(q)
+        out.append({"symbol": q["symbol"], "price": q["price"], "bid": bid, "ask": ask, "change_pct": q["change_pct"], "delayed": q["delayed"]})
+    return out
 
 
 @app.get("/api/market/candles")
@@ -788,7 +813,7 @@ def market_candles(symbol: str, timeframe: str = "1h", limit: int = 300, period:
     try:
         return market_data.candles(symbol, timeframe, limit, period)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Historical market data unavailable: {str(exc)[:220]}")
+        raise HTTPException(status_code=502, detail=market_error(exc, symbol))
 
 
 @app.post("/api/paper/order")
@@ -921,6 +946,37 @@ def chat(body: ChatIn):
     return {"reply": reply}
 
 
+def watch_parent(pid: int):
+    """Exit when the APEX window process is gone, so a crash or force-quit never leaves
+    an orphaned backend behind (it would lock the files the next update replaces)."""
+    def alive() -> bool:
+        if os.name == "nt":
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
+            if not handle:
+                return False
+            try:
+                return kernel32.WaitForSingleObject(handle, 0) == 0x00000102  # WAIT_TIMEOUT: still running
+            finally:
+                kernel32.CloseHandle(handle)
+        try:
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+
+    def loop():
+        while True:
+            time.sleep(2)
+            if not alive():
+                os._exit(0)
+
+    threading.Thread(target=loop, name="apex-parent-watch", daemon=True).start()
+
+
 if __name__ == "__main__":
     # Windows builds run without a console window, so stdout/stderr are None and
     # uvicorn's logger would crash on start. Send them to the log folder instead.
@@ -930,6 +986,10 @@ if __name__ == "__main__":
         sys.stderr = sys.stderr or stream
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--parent-pid", type=int, default=0)
     args = parser.parse_args()
+    if args.parent_pid:
+        watch_parent(args.parent_pid)
     log("backend start")
-    uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
+    print(f"APEX backend listening on 127.0.0.1:{args.port}", flush=True)
+    uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning", access_log=False)

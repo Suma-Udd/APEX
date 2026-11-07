@@ -1,32 +1,50 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api } from "./api";
-import { SYMBOLS, findSymbol, labelFor } from "./constants";
-import { errText, price as fmtPrice, signedMoney } from "./format";
+import { api, isMac, useBackendStatus, usePoll } from "./lib/api";
+import { SYMBOLS, findSymbol, labelFor } from "./lib/constants";
+import { errText, price as fmtPrice, signedMoney } from "./lib/format";
+import { useTheme } from "./lib/theme";
+import { useUpdater } from "./lib/updater";
 import type {
-  AISettings, AISetup, Backtest, Candle, Health, LogItem, OperationMode, Order, PaperState, Position, Quote, Risk,
+  AISettings, AISetup, Backtest, Candle, Health, LogItem, MiniQuote, OperationMode, Order, PaperState, Position, Quote, Risk,
   Strategy, StrategyResponse,
-} from "./types";
-import TopBar from "./components/TopBar";
+} from "./lib/types";
+import Toolbar from "./components/Toolbar";
+import Watchlist from "./components/Watchlist";
+import ChartPanel from "./components/ChartPanel";
+import BottomPanel, { BottomTab } from "./components/BottomPanel";
+import OrderTicket, { TicketState } from "./components/OrderTicket";
 import StrategyPanel from "./components/StrategyPanel";
 import RiskPanel from "./components/RiskPanel";
-import ChartPanel from "./components/ChartPanel";
-import OrderTicket, { TicketState } from "./components/OrderTicket";
-import SidePanel from "./components/SidePanel";
 import SettingsModal from "./components/SettingsModal";
+import Startup from "./components/Startup";
 import Toasts, { Toast } from "./components/Toasts";
 import UpdateCard from "./components/UpdateCard";
-import { useUpdater } from "./updater";
 import type { Guide } from "./components/PriceChart";
+import { Alert } from "./components/Icons";
 
 const DEFAULT_RISK: Risk = { risk_pct: 0.5, max_drawdown_pct: 5, max_open_positions: 3, daily_loss_limit_pct: 2 };
-const EMPTY_TICKET: TicketState = { type: "market", qty: "1", limit: "", stop: "", sl: "", tp: "" };
+const EMPTY_TICKET: TicketState = { side: "buy", type: "market", qty: "1", limit: "", stop: "", sl: "", tp: "" };
 const sameJSON = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+const WATCH = SYMBOLS.map((s) => s.api).join(",");
+const STEP: Record<string, number> = { "1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400, "1w": 604800 };
+
+function stored<T extends string>(key: string, fallback: T): T {
+  try { return (localStorage.getItem(key) as T) || fallback; } catch { return fallback; }
+}
+function store(key: string, value: string) {
+  try { localStorage.setItem(key, value); } catch { /* private mode */ }
+}
 
 export default function App() {
+  const [backend, restartBackend] = useBackendStatus();
+  const ready = backend.phase === "ready";
+  const [themePref, setThemePref, theme] = useTheme();
+
   // ── Live data (polled) ────────────────────────────────────────────────
   const [health, setHealth] = useState<Health | null>(null);
   const [paper, setPaper] = useState<PaperState | null>(null);
   const [logs, setLogs] = useState<LogItem[]>([]);
+  const [watch, setWatch] = useState<Record<string, MiniQuote>>({});
   const [offline, setOffline] = useState(false);
 
   // ── Config (loaded once and after explicit saves, never clobbered by polling) ──
@@ -37,14 +55,16 @@ export default function App() {
   const [paramStatus, setParamStatus] = useState("Saved");
   const [savedRisk, setSavedRisk] = useState<Risk>(DEFAULT_RISK);
   const [risk, setRisk] = useState<Risk>(DEFAULT_RISK);
-  const [riskStatus, setRiskStatus] = useState("Saved");
+  const [, setRiskStatus] = useState("Saved");
   const [aiSettings, setAiSettings] = useState<AISettings>({ base_url: "http://127.0.0.1:31415/v1", model: "auto", api_key_set: false });
   const [mode, setMode] = useState<OperationMode>("manual");
   const [aiSetup, setAiSetup] = useState<AISetup | null>(null);
 
   // ── Chart / market ────────────────────────────────────────────────────
-  const [symbol, setSymbol] = useState(SYMBOLS[4].api); // BTC: trades 24/7 so there's always movement
-  const [frame, setFrame] = useState("1h");
+  const [symbol, setSymbolRaw] = useState<string>(() => stored("apex.symbol", "BTCUSDT"));
+  const [frame, setFrameRaw] = useState<string>(() => stored("apex.frame", "1h"));
+  const setSymbol = (s: string) => { setSymbolRaw(s); store("apex.symbol", s); };
+  const setFrame = (f: string) => { setFrameRaw(f); store("apex.frame", f); };
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quoteError, setQuoteError] = useState("");
   const [candles, setCandles] = useState<Candle[]>([]);
@@ -52,7 +72,9 @@ export default function App() {
   const [candlesLoading, setCandlesLoading] = useState(false);
 
   // ── UI ────────────────────────────────────────────────────────────────
-  const [leftTab, setLeftTab] = useState<"strategy" | "risk">("strategy");
+  const [inspector, setInspector] = useState<"trade" | "strategy" | "risk">("trade");
+  const [bottomTab, setBottomTab] = useState<BottomTab>("positions");
+  const [sidebar, setSidebar] = useState(() => stored("apex.sidebar", "1") === "1");
   const [ticket, setTicket] = useState<TicketState>(EMPTY_TICKET);
   const [orderMessage, setOrderMessage] = useState("");
   const [modeMessage, setModeMessage] = useState("");
@@ -60,23 +82,23 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState("");
-  const [chat, setChat] = useState<{ role: "user" | "assistant"; text: string }[]>([
-    { role: "assistant", text: "Research assistant. It has your selected strategy, its parameters and your paper account as context." },
-  ]);
+  const [chat, setChat] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
   const [chatPending, setChatPending] = useState(false);
   const [dragLevels, setDragLevels] = useState<{ sl?: number; tp?: number }>({});
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastId = useRef(0);
   const updater = useUpdater();
 
-  const instrument = findSymbol(symbol) ?? SYMBOLS[0];
+  const instrument = findSymbol(symbol) ?? SYMBOLS[4];
   const strategy = strategies.find((s) => s.id === strategyId) ?? null;
   const position = paper?.positions.find((p) => p.symbol === symbol) ?? null;
 
+  useEffect(() => { document.documentElement.classList.toggle("mac", isMac); }, []);
+
   const toast = useCallback((text: string, kind: Toast["kind"] = "info") => {
     const id = ++toastId.current;
-    setToasts((t) => [...t.slice(-3), { id, text, kind }]);
-    window.setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4200);
+    setToasts((t) => [...t.slice(-2), { id, text, kind }]);
+    window.setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4000);
   }, []);
 
   // ── Loading ───────────────────────────────────────────────────────────
@@ -90,69 +112,78 @@ export default function App() {
       setSavedRisk(r); setRisk(r);
       setAiSettings(ai);
       setMode(m.mode); setAiSetup(m.setup);
-    } catch (e) { setOffline(true); toast(errText(e), "bad"); }
+    } catch (e) { toast(errText(e), "bad"); }
   }, [toast]);
+  useEffect(() => { if (ready) void loadConfig(); }, [ready, loadConfig]);
 
-  const pollLive = useCallback(async () => {
+  const pollPaper = useCallback(async () => {
     try {
-      const [h, p, l] = await Promise.all([api<Health>("/api/health"), api<PaperState>("/api/paper/state"), api<LogItem[]>("/api/logs?limit=120")]);
-      setHealth(h); setPaper((old) => (sameJSON(old, p) ? old : p)); setLogs((old) => (sameJSON(old, l) ? old : l)); setOffline(false);
+      const p = await api<PaperState>("/api/paper/state");
+      setPaper((old) => (sameJSON(old, p) ? old : p)); setOffline(false);
     } catch { setOffline(true); }
   }, []);
-
-  useEffect(() => { void loadConfig(); void pollLive(); const t = window.setInterval(pollLive, 4000); return () => window.clearInterval(t); }, [loadConfig, pollLive]);
+  usePoll(pollPaper, 3000, [], ready);
+  usePoll(async () => { try { setHealth(await api<Health>("/api/health")); } catch { /* paper poll reports offline */ } }, 20000, [], ready);
+  usePoll(async () => {
+    const l = await api<LogItem[]>("/api/logs?limit=150");
+    setLogs((old) => (sameJSON(old, l) ? old : l));
+  }, 5000, [], ready && bottomTab === "activity");
+  usePoll(async () => {
+    const list = await api<MiniQuote[]>(`/api/market/quotes?symbols=${encodeURIComponent(WATCH)}`);
+    setWatch(Object.fromEntries(list.map((q) => [q.symbol, q])));
+  }, 15000, [], ready && sidebar);
 
   // Strategy parameters: load when the selected strategy changes (not every poll).
   useEffect(() => {
+    if (!ready) return;
     let alive = true;
     api<{ parameters: Record<string, number> }>(`/api/strategies/${encodeURIComponent(strategyId)}/parameters`)
       .then((r) => { if (alive) { setSavedParams(r.parameters); setParams(r.parameters); setParamStatus("Saved"); } })
       .catch(() => undefined);
     return () => { alive = false; };
-  }, [strategyId]);
+  }, [strategyId, ready]);
 
   // Quote for the selected symbol.
-  useEffect(() => {
-    let alive = true;
-    setQuote(null); setQuoteError("");
-    const load = async () => {
-      try { const q = await api<Quote>(`/api/market/quote?symbol=${encodeURIComponent(symbol)}`); if (alive) { setQuote(q); setQuoteError(""); } }
-      catch (e) { if (alive) setQuoteError(errText(e)); }
-    };
-    void load(); const t = window.setInterval(load, 10000);
-    return () => { alive = false; window.clearInterval(t); };
-  }, [symbol]);
+  useEffect(() => { setQuote(null); setQuoteError(""); }, [symbol]);
+  usePoll(async () => {
+    try { const q = await api<Quote>(`/api/market/quote?symbol=${encodeURIComponent(symbol)}`); setQuote(q); setQuoteError(""); }
+    catch (e) { setQuoteError(errText(e)); }
+  }, 5000, [symbol], ready);
 
   // Candles for the chart.
-  useEffect(() => {
-    let alive = true;
-    setCandles([]); setCandlesError(""); setCandlesLoading(true);
-    const load = async () => {
-      try {
-        const r = await api<{ candles: Candle[] }>(`/api/market/candles?symbol=${encodeURIComponent(symbol)}&timeframe=${frame}&limit=400`);
-        if (alive) { setCandles((old) => (sameJSON(old, r.candles) ? old : r.candles)); setCandlesError(""); }
-      } catch (e) { if (alive) setCandlesError(errText(e)); }
-      finally { if (alive) setCandlesLoading(false); }
-    };
-    void load(); const t = window.setInterval(load, 30000);
-    return () => { alive = false; window.clearInterval(t); };
-  }, [symbol, frame]);
+  useEffect(() => { setCandles([]); setCandlesError(""); setCandlesLoading(true); }, [symbol, frame]);
+  usePoll(async () => {
+    try {
+      const r = await api<{ candles: Candle[] }>(`/api/market/candles?symbol=${encodeURIComponent(symbol)}&timeframe=${frame}&limit=400`);
+      setCandles((old) => (sameJSON(old, r.candles) ? old : r.candles)); setCandlesError("");
+    } catch (e) { setCandlesError(errText(e)); }
+    finally { setCandlesLoading(false); }
+  }, 30000, [symbol, frame], ready);
 
-  // Marking positions, filling orders and running Auto all happen in the backend
-  // now (every 15s), so they keep going even if this window is busy. The UI just
-  // watches for new fills and announces them.
+  // Keep the last candle moving with the live quote between candle refreshes.
+  const liveCandles = useMemo(() => {
+    if (!candles.length || !quote || quote.symbol !== symbol) return candles;
+    const last = candles[candles.length - 1];
+    const step = STEP[frame] ?? 3600;
+    if (Date.now() / 1000 > last.t + step) return candles; // market closed or a new candle is due
+    const c = quote.price;
+    if (c === last.c) return candles;
+    return [...candles.slice(0, -1), { ...last, c, h: Math.max(last.h, c), l: Math.min(last.l, c) }];
+  }, [candles, quote, symbol, frame]);
+
+  // Fills happen in the backend; the UI just announces new ones.
   const seenTrades = useRef<Set<string> | null>(null);
   useEffect(() => {
     const trades = paper?.trades ?? [];
-    if (seenTrades.current === null) { seenTrades.current = new Set(trades.map((t) => t.id)); return; }
+    if (seenTrades.current === null) { if (paper) seenTrades.current = new Set(trades.map((t) => t.id)); return; }
     for (const t of trades) {
       if (seenTrades.current.has(t.id)) continue;
       seenTrades.current.add(t.id);
       if (t.reason !== "market order" && !t.reason.startsWith("manual") && t.reason !== "close all") {
-        toast(`${t.reason.charAt(0).toUpperCase()}${t.reason.slice(1)}: ${t.side.toUpperCase()} ${Number(t.quantity.toPrecision(6))} ${labelFor(t.symbol)} @ ${fmtPrice(t.price)}`, t.realized_pnl && t.realized_pnl < 0 ? "bad" : "good");
+        toast(`${t.reason.charAt(0).toUpperCase()}${t.reason.slice(1)}: ${t.side === "buy" ? "Bought" : "Sold"} ${Number(t.quantity.toPrecision(6))} ${labelFor(t.symbol)} at ${fmtPrice(t.price)}`, t.realized_pnl && t.realized_pnl < 0 ? "bad" : "good");
       }
     }
-  }, [paper?.trades, toast]);
+  }, [paper, toast]);
 
   // Reset drag preview once the real position levels come back.
   useEffect(() => { setDragLevels({}); }, [position?.stop_loss, position?.take_profit, symbol]);
@@ -207,7 +238,7 @@ export default function App() {
 
   const saveRisk = async () => {
     const r = await run(() => api<Risk>("/api/risk", { method: "POST", body: JSON.stringify(risk) }));
-    if (r) { setSavedRisk(r); setRisk(r); setRiskStatus("Saved"); toast("Risk limits saved", "good"); void pollLive(); }
+    if (r) { setSavedRisk(r); setRisk(r); setRiskStatus("Saved"); toast("Risk limits saved", "good"); void pollPaper(); }
   };
 
   const resetAccount = async () => {
@@ -238,7 +269,7 @@ export default function App() {
     if (!r) return;
     setPaper(r.portfolio);
     const verb = r.order.status === "filled" ? "Filled" : r.order.status === "triggered" ? "Triggered" : "Working";
-    toast(`${verb}: ${side.toUpperCase()} ${ticket.qty} ${instrument.label}${r.order.filled_price ? ` @ ${fmtPrice(r.order.filled_price)}` : ""}`, side === "buy" ? "good" : "bad");
+    toast(`${verb}: ${side === "buy" ? "Buy" : "Sell"} ${ticket.qty} ${instrument.label}${r.order.filled_price ? ` at ${fmtPrice(r.order.filled_price)}` : ""}`, "good");
     setTicket((t) => ({ ...t, sl: "", tp: "", limit: "", stop: "" }));
   };
 
@@ -255,7 +286,7 @@ export default function App() {
 
   const cancelOrder = async (o: Order) => {
     const r = await run(() => api<Order>(`/api/paper/orders/${o.id}`, { method: "DELETE" }));
-    if (r) { void pollLive(); toast("Order cancelled"); }
+    if (r) { void pollPaper(); toast("Order cancelled"); }
   };
 
   const saveAI = async (s: { base_url: string; model: string; api_key: string }, test: boolean) => {
@@ -267,7 +298,7 @@ export default function App() {
         const t = await api<{ models: string[] }>("/api/ai/test", { method: "POST" });
         setSettingsMessage(`Connected${t.models.length ? `. Models: ${t.models.slice(0, 5).join(", ")}` : ""}.`);
       } else setSettingsMessage("Saved.");
-      void pollLive();
+      setHealth(await api<Health>("/api/health"));
     }, (m) => setSettingsMessage(m));
   };
 
@@ -286,20 +317,20 @@ export default function App() {
   const guides: Guide[] = useMemo(() => {
     const g: Guide[] = [];
     if (position) {
-      g.push({ key: "entry", price: position.avg_price, color: "#9598a1", title: `${position.quantity > 0 ? "Long" : "Short"} ${Math.abs(position.quantity).toLocaleString()}` });
+      g.push({ key: "entry", price: position.avg_price, color: "#8e8e93", title: `${position.quantity > 0 ? "Long" : "Short"} ${Math.abs(position.quantity).toLocaleString()}` });
       const sl = dragLevels.sl ?? position.stop_loss; const tp = dragLevels.tp ?? position.take_profit;
-      if (sl) g.push({ key: "sl", price: sl, color: "#ef5350", title: "SL", draggable: true });
-      if (tp) g.push({ key: "tp", price: tp, color: "#26a69a", title: "TP", draggable: true });
+      if (sl) g.push({ key: "sl", price: sl, color: "#ff453a", title: "SL", draggable: true });
+      if (tp) g.push({ key: "tp", price: tp, color: "#30d158", title: "TP", draggable: true });
     } else {
-      if (Number(ticket.sl)) g.push({ key: "sl", price: Number(ticket.sl), color: "#ef5350", title: "SL", draggable: true, dashed: true });
-      if (Number(ticket.tp)) g.push({ key: "tp", price: Number(ticket.tp), color: "#26a69a", title: "TP", draggable: true, dashed: true });
+      if (Number(ticket.sl)) g.push({ key: "sl", price: Number(ticket.sl), color: "#ff453a", title: "SL", draggable: true, dashed: true });
+      if (Number(ticket.tp)) g.push({ key: "tp", price: Number(ticket.tp), color: "#30d158", title: "TP", draggable: true, dashed: true });
     }
-    if (Number(ticket.limit) && (ticket.type === "limit" || ticket.type === "stop_limit")) g.push({ key: "limit", price: Number(ticket.limit), color: "#e0a030", title: "Limit", draggable: true, dashed: true });
-    if (Number(ticket.stop) && (ticket.type === "stop" || ticket.type === "stop_limit")) g.push({ key: "stop", price: Number(ticket.stop), color: "#e0a030", title: "Stop", draggable: true, dashed: true });
+    if (Number(ticket.limit) && (ticket.type === "limit" || ticket.type === "stop_limit")) g.push({ key: "limit", price: Number(ticket.limit), color: "#ff9f0a", title: "Limit", draggable: true, dashed: true });
+    if (Number(ticket.stop) && (ticket.type === "stop" || ticket.type === "stop_limit")) g.push({ key: "stop", price: Number(ticket.stop), color: "#ff9f0a", title: "Stop", draggable: true, dashed: true });
     if (aiSetup && mode !== "manual" && aiSetup.symbol === symbol && !position && !aiSetup.direction.startsWith("FLAT")) {
-      g.push({ key: "ai-entry", price: aiSetup.entry, color: "#3d7eff", title: "Strategy entry", dashed: true });
-      if (aiSetup.stop_loss) g.push({ key: "ai-sl", price: aiSetup.stop_loss, color: "rgba(239,83,80,0.6)", title: "Strategy stop", dashed: true });
-      if (aiSetup.take_profit) g.push({ key: "ai-tp", price: aiSetup.take_profit, color: "rgba(38,166,154,0.6)", title: "Strategy target", dashed: true });
+      g.push({ key: "ai-entry", price: aiSetup.entry, color: "#0a84ff", title: "Strategy entry", dashed: true });
+      if (aiSetup.stop_loss) g.push({ key: "ai-sl", price: aiSetup.stop_loss, color: "rgba(255,69,58,0.6)", title: "Strategy stop", dashed: true });
+      if (aiSetup.take_profit) g.push({ key: "ai-tp", price: aiSetup.take_profit, color: "rgba(48,209,88,0.6)", title: "Strategy target", dashed: true });
     }
     return g;
   }, [position, dragLevels, ticket, aiSetup, mode, symbol]);
@@ -320,7 +351,7 @@ export default function App() {
   };
 
   const emaPeriods = strategyId === "trend-following-ema"
-    ? [{ period: Number(params.fast_ema) || 20, color: "#2962ff" }, { period: Number(params.slow_ema) || 50, color: "#ff9800" }]
+    ? [{ period: Number(params.fast_ema) || 20, color: "#0a84ff" }, { period: Number(params.slow_ema) || 50, color: "#ff9f0a" }]
     : [];
 
   const canTrade = !!paper?.active && mode !== "ai_setup";
@@ -328,59 +359,61 @@ export default function App() {
     : quote?.session && !quote.session.open && ticket.type === "market" ? "Market is closed. Limit and stop orders can still be placed."
     : !paper?.active ? "Engine is paused. Start it to place orders." : paper?.risk_halt ? `${paper.risk_halt}` : "";
 
+  if (!ready) return <Startup status={backend} onRetry={restartBackend} />;
+
   return (
     <div className="app">
-            <TopBar paper={paper} health={health} offline={offline} busy={busy} canStart={mode !== "ai_setup"}
-        startLabel={mode === "ai_auto" ? "Start AI Auto" : "Start engine"} onToggleEngine={() => void toggleEngine()} onOpenSettings={() => { setSettingsMessage(""); setSettingsOpen(true); }} />
+      <Toolbar paper={paper} busy={busy} canStart={mode !== "ai_setup"} startLabel={mode === "ai_auto" ? "Start AI Auto" : "Start"}
+        onToggleEngine={() => void toggleEngine()} onOpenSettings={() => { setSettingsMessage(""); setSettingsOpen(true); }}
+        onToggleSidebar={() => { setSidebar(!sidebar); store("apex.sidebar", sidebar ? "0" : "1"); }} />
 
-      {offline && <div className="banner bad">Backend not responding. Reconnecting… If this persists, restart APEX.</div>}
-      {!offline && paper?.risk_halt && <div className="banner warn">{paper.risk_halt}</div>}
+      {(offline || paper?.risk_halt) && (
+        <div className={`banner ${offline ? "bad" : "warn"}`}><Alert size={14} />{offline ? "Lost connection to the trading engine. Reconnecting…" : paper?.risk_halt}</div>
+      )}
 
-      <main className="workspace">
-        <aside className="panel left">
-          <nav className="tabs">
-            <button className={leftTab === "strategy" ? "on" : ""} onClick={() => setLeftTab("strategy")}>Strategy</button>
-            <button className={leftTab === "risk" ? "on" : ""} onClick={() => setLeftTab("risk")}>Risk {!sameJSON(risk, savedRisk) && <i className="dot" />}</button>
-          </nav>
-          <div key={leftTab} className="tab-pane">
-            {leftTab === "strategy" ? (
+      <div className={`workspace ${sidebar ? "" : "no-sidebar"}`}>
+        {sidebar && <Watchlist selected={symbol} onSelect={setSymbol} quotes={watch} positions={paper?.positions ?? []} />}
+
+        <main className="main">
+          <ChartPanel instrument={instrument} frame={frame} onFrame={setFrame} quote={quote} quoteError={quoteError} theme={theme}
+            candles={liveCandles} candlesError={candlesError} candlesLoading={candlesLoading} emas={emaPeriods} guides={guides}
+            onGuideDrag={onGuideDrag} onGuideDrop={(k, p) => void onGuideDrop(k, p)} />
+          <BottomPanel tab={bottomTab} onTab={setBottomTab} paper={paper} logs={logs} busy={busy} onSelectSymbol={setSymbol}
+            onClosePosition={(p) => void closePosition(p)} onCancelOrder={(o) => void cancelOrder(o)} onCloseAll={() => void closeAll()}
+            chat={chat} onSendChat={(t) => void sendChat(t)} chatPending={chatPending} aiConfigured={!!health?.ai_configured} strategyName={strategy?.name ?? ""} />
+        </main>
+
+        <aside className="inspector">
+          <div className="seg full inspector-tabs" role="tablist" aria-label="Panel">
+            {(["trade", "strategy", "risk"] as const).map((t) => (
+              <button key={t} role="tab" aria-selected={inspector === t} className={inspector === t ? "on" : ""} onClick={() => setInspector(t)}>
+                {t[0].toUpperCase() + t.slice(1)}{t === "risk" && !sameJSON(risk, savedRisk) && <i className="dot" />}
+              </button>
+            ))}
+          </div>
+          <div className="inspector-body" key={inspector}>
+            {inspector === "trade" && (
+              <OrderTicket ticket={ticket} onChange={setTicket} symbolLabel={instrument.label} lastPrice={quote?.price ?? null}
+                equity={paper?.equity ?? 100000} freeMargin={paper?.free_margin ?? paper?.equity ?? 100000} riskPct={savedRisk.risk_pct} position={position} quote={quote}
+                canTrade={canTrade} blockedReason={blockedReason} busy={busy} message={orderMessage} onSubmit={(s) => void submitOrder(s)} />
+            )}
+            {inspector === "strategy" && (
               <StrategyPanel mode={mode} onMode={(m) => void changeMode(m)} aiSetup={aiSetup} aiConfigured={!!health?.ai_configured}
                 onGenerate={() => void generateSetup()} setupMismatch={!!aiSetup && (aiSetup.symbol !== symbol || aiSetup.timeframe !== frame)}
                 strategies={strategies} strategy={strategy} strategyId={strategyId} onStrategy={(id) => { setStrategyId(id); setBacktest(null); }}
                 params={params} onParam={(k, v) => setParams((p) => ({ ...p, [k]: v }))} paramsDirty={!sameJSON(params, savedParams)} onSaveParams={() => void saveParams()} paramStatus={paramStatus}
                 onDuplicate={(n) => void duplicate(n)} backtest={backtest} onBacktest={() => void runBacktest()} busy={busy} message={modeMessage} />
-            ) : (
-              <RiskPanel risk={risk} onChange={setRisk} dirty={!sameJSON(risk, savedRisk)} onSave={() => void saveRisk()} status={riskStatus}
+            )}
+            {inspector === "risk" && (
+              <RiskPanel risk={risk} onChange={setRisk} dirty={!sameJSON(risk, savedRisk)} onSave={() => void saveRisk()}
                 paper={paper} onReset={() => void resetAccount()} busy={busy} />
             )}
           </div>
         </aside>
-
-        <section className="center">
-          <ChartPanel instrument={instrument} onSymbol={setSymbol} frame={frame} onFrame={setFrame} quote={quote} quoteError={quoteError}
-            candles={candles} candlesError={candlesError} candlesLoading={candlesLoading} emas={emaPeriods} guides={guides}
-            onGuideDrag={onGuideDrag} onGuideDrop={(k, p) => void onGuideDrop(k, p)} />
-          <OrderTicket ticket={ticket} onChange={setTicket} symbolLabel={instrument.label} lastPrice={quote?.price ?? null}
-            equity={paper?.equity ?? 100000} freeMargin={paper?.free_margin ?? paper?.equity ?? 100000} riskPct={savedRisk.risk_pct} position={position} quote={quote}
-            canTrade={canTrade} blockedReason={blockedReason} busy={busy} message={orderMessage} onSubmit={(s) => void submitOrder(s)} />
-        </section>
-
-        <aside className="panel right">
-          <SidePanel paper={paper} logs={logs} busy={busy} onSelectSymbol={setSymbol} onClosePosition={(p) => void closePosition(p)}
-            onCancelOrder={(o) => void cancelOrder(o)} onCloseAll={() => void closeAll()}
-            chat={chat} onSendChat={(t) => void sendChat(t)} chatPending={chatPending} aiConfigured={!!health?.ai_configured} strategyName={strategy?.name ?? ""} />
-        </aside>
-      </main>
-
-      <footer className="statusbar">
-        <span><i className={offline ? "bad" : "ok"} /> Backend {offline ? "offline" : "connected"}</span>
-        <span>Data: Binance · Yahoo Finance</span>
-        <span>AI: {health?.ai ?? "checking"}</span>
-        <span className="push">Simulated trading · no broker connection</span>
-        {updater.version && <span className="mono">v{updater.version}</span>}
-      </footer>
+      </div>
 
       {settingsOpen && <SettingsModal initial={aiSettings} busy={busy} message={settingsMessage} onSave={(s, t) => void saveAI(s, t)} onClose={() => setSettingsOpen(false)}
+        theme={themePref} onTheme={setThemePref}
         version={updater.version} update={updater.state} onCheckUpdate={() => void updater.check()} onInstallUpdate={() => { setSettingsOpen(false); void updater.install(); }} />}
       {updater.showCard && <UpdateCard state={updater.state} onInstall={() => void updater.install()} onLater={updater.dismiss} />}
       <Toasts items={toasts} />
