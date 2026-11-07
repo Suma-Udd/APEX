@@ -24,6 +24,7 @@ from modules.strategy_library import all_builtin, get_builtin
 from modules.paper_engine import empty_state, mark_state, migrate, close_all, close_position, submit_order, update_quotes, risk_check, record_equity
 from modules import market_data, instruments, signals
 from modules import backtest as backtest_engine
+from modules import lesson as lesson_engine
 
 TOKEN = os.environ.get("APEX_TOKEN", "dev")
 
@@ -804,7 +805,7 @@ def market_quotes(symbols: str):
     out = []
     for q in market_data.quotes(wanted):
         bid, ask = instruments.bid_ask(q)
-        out.append({"symbol": q["symbol"], "price": q["price"], "bid": bid, "ask": ask, "change_pct": q["change_pct"], "delayed": q["delayed"]})
+        out.append({"symbol": q["symbol"], "price": q["price"], "bid": bid, "ask": ask, "change_pct": q["change_pct"], "delayed": q["delayed"], "spark": q.get("spark", [])})
     return out
 
 
@@ -904,6 +905,32 @@ def run_backtest(body: BacktestIn):
             "from": bars[0]["t"], "to": bars[-1]["t"], "data_source": data.get("source"), "parameters": params,
             "note": "Historical simulation. Past results don't predict future performance."}
 
+
+
+class OverviewIn(BaseModel):
+    strategy_id: str
+    symbol: str = "BTCUSDT"
+    timeframe: str = "1h"
+
+
+@app.post("/api/overview")
+def ai_overview(body: OverviewIn):
+    """Lesson replay: the strategy's recent trades on this chart, each explained step by step."""
+    strategy = load_strategy(body.strategy_id)
+    eid = engine_id(strategy)
+    if not eid:
+        raise HTTPException(status_code=501, detail="This strategy has no signal engine")
+    try:
+        _, bars = closed_candles(body.symbol, body.timeframe, 1000)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=market_error(exc, body.symbol.upper()))
+    if len(bars) < 120:
+        raise HTTPException(status_code=422, detail="Not enough history on this chart yet. Try a longer timeframe.")
+    params = clean_params(strategy.get("parameters", {}), get_strategy_parameters(body.strategy_id)["parameters"])
+    risk = current_risk()
+    bt = backtest_engine.run(eid, bars, params, body.symbol.upper(), body.timeframe, 10000, risk["risk_pct"],
+                             base_id=strategy.get("base_id"), keep_engine=True)
+    return lesson_engine.build(strategy, eid, bars, params, bt, risk["risk_pct"], body.symbol.upper(), body.timeframe)
 
 
 class ChatIn(BaseModel):

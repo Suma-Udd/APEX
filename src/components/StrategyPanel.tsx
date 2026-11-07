@@ -11,6 +11,7 @@ type Props = {
   params: Record<string, number>; onParam: (k: string, v: number) => void; paramsDirty: boolean; onSaveParams: () => void; paramStatus: string;
   onDuplicate: (name: string) => void;
   backtest: Backtest | null; onBacktest: () => void; busy: boolean; message: string;
+  onOverview: () => void;
 };
 
 const MODES: { id: OperationMode; label: string; hint: string }[] = [
@@ -111,6 +112,10 @@ export default function StrategyPanel(p: Props) {
         </div>
         <p className="hint">Last 1,000 candles of this chart, with spread, fees and your risk per trade.</p>
         {p.backtest && (p.backtest.error ? <p className="note bad">{p.backtest.error}</p> : <BacktestResult b={p.backtest} />)}
+        <button className="ov-promo" onClick={p.onOverview}>
+          <span><b>AI Overview</b><small>Watch this strategy trade recent history, step by step, with the reasoning behind every entry and exit.</small></span>
+          <span className="chev" aria-hidden="true">›</span>
+        </button>
       </section>
     </div>
   );

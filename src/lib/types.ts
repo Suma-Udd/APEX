@@ -58,4 +58,4 @@ export type Backtest = {
   fees_paid?: number; avg_win?: number; avg_loss?: number; from?: number; to?: number;
   equity_curve?: [number, number][]; trade_log?: BacktestTrade[];
 };
-export type MiniQuote = { symbol: string; price: number; bid: number; ask: number; change_pct: number; delayed: boolean };
+export type MiniQuote = { symbol: string; price: number; bid: number; ask: number; change_pct: number; delayed: boolean; spark?: number[] };

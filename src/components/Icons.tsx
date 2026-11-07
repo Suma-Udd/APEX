@@ -15,3 +15,4 @@ export const Play = ({ size }: P) => <svg {...base(size)}><path d="M7 5.5v13l11-
 export const Pause = ({ size }: P) => <svg {...base(size)}><path d="M8 5v14M16 5v14" strokeWidth="2.6" /></svg>;
 export const Sidebar = ({ size }: P) => <svg {...base(size)}><rect x="3" y="4.5" width="18" height="15" rx="3" /><path d="M9 4.5v15" /></svg>;
 export const Alert = ({ size }: P) => <svg {...base(size)}><path d="M12 8v5M12 16.5v.01" /><path d="M10.3 3.9 2.6 17.5A2 2 0 0 0 4.3 20.5h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>;
+export const Lesson = ({ size }: P) => <svg {...base(size)}><path d="M3 17l5-5 4 3 7-8" /><path d="M15 7h4v4" /><path d="M3 21h18" /></svg>;

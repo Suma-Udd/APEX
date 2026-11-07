@@ -2,6 +2,7 @@ import logo from "../assets/logo.png";
 import type { PaperState } from "../lib/types";
 import { money, signedMoney, tone } from "../lib/format";
 import { Gear, Pause, Play, Sidebar } from "./Icons";
+import { Tick, Tween } from "./Motion";
 
 type Props = {
   paper: PaperState | null; busy: boolean; canStart: boolean; startLabel: string;
@@ -27,10 +28,10 @@ export default function Toolbar({ paper, busy, canStart, startLabel, onToggleEng
       <div className="toolbar-fill" data-tauri-drag-region />
 
       <dl className="figures" data-tauri-drag-region>
-        <Figure label="Equity" value={money(equity)} />
-        <Figure label="Today" value={signedMoney(today)} cls={tone(today)} />
-        <Figure label="Open P&L" value={signedMoney(paper?.floating_pnl)} cls={tone(paper?.floating_pnl)} />
-        <Figure label="Free margin" value={money(paper?.free_margin ?? equity)}
+        <Figure label="Equity" n={equity} fmt={money} />
+        <Figure label="Today" n={today} fmt={signedMoney} cls={tone(today)} />
+        <Figure label="Open P&L" n={paper?.floating_pnl ?? 0} fmt={signedMoney} cls={tone(paper?.floating_pnl)} />
+        <Figure label="Free margin" n={paper?.free_margin ?? equity} fmt={money}
           cls={level !== null && level < 100 ? "down" : level !== null && level < 200 ? "warn" : ""}
           title={level !== null ? `Margin level ${level.toFixed(0)}%` : undefined} />
       </dl>
@@ -45,11 +46,11 @@ export default function Toolbar({ paper, busy, canStart, startLabel, onToggleEng
   );
 }
 
-function Figure({ label, value, cls = "", title }: { label: string; value: string; cls?: string; title?: string }) {
+function Figure({ label, n, fmt, cls = "", title }: { label: string; n: number; fmt: (n: number) => string; cls?: string; title?: string }) {
   return (
     <div className="figure" title={title}>
       <dt>{label}</dt>
-      <dd className={cls}>{value}</dd>
+      <dd className={cls}><Tick value={n}><Tween value={n} format={fmt} /></Tick></dd>
     </div>
   );
 }

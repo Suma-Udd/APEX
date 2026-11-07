@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import {
   CandlestickSeries, ColorType, CrosshairMode, HistogramSeries, IPriceLine, ISeriesApi, LineSeries, LineStyle,
-  UTCTimestamp, createChart, IChartApi,
+  UTCTimestamp, createChart, IChartApi, createSeriesMarkers, ISeriesMarkersPluginApi, SeriesMarker, Time,
 } from "lightweight-charts";
 import type { Candle } from "../lib/types";
 import { price as fmtPrice } from "../lib/format";
 
+export type Marker = { t: number; side: "buy" | "sell"; text?: string };
 export type Guide = { key: string; price: number; color: string; title: string; draggable?: boolean; dashed?: boolean };
 
 type Props = {
@@ -17,6 +18,7 @@ type Props = {
   loading?: boolean;
   error?: string;
   theme?: string;
+  markers?: Marker[];
 };
 
 function ema(values: number[], period: number) {
@@ -26,16 +28,16 @@ function ema(values: number[], period: number) {
   return out;
 }
 
-const css = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+export const css = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
-function palette() {
+export function palette() {
   return {
     text: css("--text-3") || "#8e8e93", grid: css("--grid") || "rgba(255,255,255,0.04)", line: css("--hairline") || "rgba(255,255,255,0.08)",
     up: css("--up") || "#30d158", down: css("--down") || "#ff453a", crosshair: css("--text-3") || "#8e8e93",
   };
 }
 
-function chartOptions() {
+export function chartOptions() {
   const c = palette();
   return {
     layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: c.text, fontFamily: css("--font") || "system-ui, sans-serif", fontSize: 11, attributionLogo: false },
@@ -46,14 +48,15 @@ function chartOptions() {
   };
 }
 
-const alpha = (hex: string, a: number) => {
+export const alpha = (hex: string, a: number) => {
   const m = hex.match(/^#([0-9a-f]{6})$/i);
   if (!m) return hex;
   const n = parseInt(m[1], 16);
   return `rgba(${n >> 16}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
 };
 
-export default function PriceChart({ candles, emas = [], guides, onGuideDrag, onGuideDrop, loading, error, theme }: Props) {
+export default function PriceChart({ candles, emas = [], guides, onGuideDrag, onGuideDrop, loading, error, theme, markers = [] }: Props) {
+  const markerApi = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const box = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
   const candleSeries = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -87,7 +90,8 @@ export default function PriceChart({ candles, emas = [], guides, onGuideDrag, on
     volumeSeries.current = c.addSeries(HistogramSeries, { priceScaleId: "vol", priceFormat: { type: "volume" }, lastValueVisible: false, priceLineVisible: false });
     c.priceScale("vol").applyOptions({ scaleMargins: { top: 0.88, bottom: 0 } });
     chart.current = c;
-    return () => { c.remove(); chart.current = null; candleSeries.current = null; volumeSeries.current = null; emaSeries.current = []; lines.current.clear(); };
+    markerApi.current = createSeriesMarkers(candleSeries.current, []);
+    return () => { markerApi.current = null; c.remove(); chart.current = null; candleSeries.current = null; volumeSeries.current = null; emaSeries.current = []; lines.current.clear(); };
   }, []);
 
   // Light / dark switch: recolour in place.
@@ -112,6 +116,21 @@ export default function PriceChart({ candles, emas = [], guides, onGuideDrag, on
     const key = `${candles.length > 0 ? candles[0].t : 0}`;
     if (key !== lastKey.current) { chart.current?.timeScale().fitContent(); lastKey.current = key; }
   }, [candles, theme]);
+
+  // Your fills as arrows on the candles they happened in.
+  useEffect(() => {
+    const api = markerApi.current;
+    if (!api) return;
+    if (!candles.length || !markers.length) { api.setMarkers([]); return; }
+    const first = candles[0].t, step = candles.length > 1 ? candles[1].t - candles[0].t : 3600;
+    const { up, down } = colors.current;
+    const list: SeriesMarker<Time>[] = markers
+      .filter((m) => m.t >= first)
+      .map((m) => ({ t: m.t - ((m.t - first) % step), m }))
+      .sort((a, b) => a.t - b.t)
+      .map(({ t, m }) => ({ time: t as UTCTimestamp, position: m.side === "buy" ? "belowBar" : "aboveBar", shape: m.side === "buy" ? "arrowUp" : "arrowDown", color: m.side === "buy" ? up : down, text: m.text, size: 1 }));
+    api.setMarkers(list);
+  }, [candles, markers, theme]);
 
   // EMA overlays.
   useEffect(() => {

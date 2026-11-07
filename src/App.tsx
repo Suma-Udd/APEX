@@ -19,7 +19,8 @@ import SettingsModal from "./components/SettingsModal";
 import Startup from "./components/Startup";
 import Toasts, { Toast } from "./components/Toasts";
 import UpdateCard from "./components/UpdateCard";
-import type { Guide } from "./components/PriceChart";
+import type { Guide, Marker } from "./components/PriceChart";
+import Overview from "./components/Overview";
 import { Alert } from "./components/Icons";
 
 const DEFAULT_RISK: Risk = { risk_pct: 0.5, max_drawdown_pct: 5, max_open_positions: 3, daily_loss_limit_pct: 2 };
@@ -85,6 +86,7 @@ export default function App() {
   const [chat, setChat] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
   const [chatPending, setChatPending] = useState(false);
   const [dragLevels, setDragLevels] = useState<{ sl?: number; tp?: number }>({});
+  const [overview, setOverview] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastId = useRef(0);
   const updater = useUpdater();
@@ -131,7 +133,7 @@ export default function App() {
   usePoll(async () => {
     const list = await api<MiniQuote[]>(`/api/market/quotes?symbols=${encodeURIComponent(WATCH)}`);
     setWatch(Object.fromEntries(list.map((q) => [q.symbol, q])));
-  }, 15000, [], ready && sidebar);
+  }, 10000, [], ready && sidebar);
 
   // Strategy parameters: load when the selected strategy changes (not every poll).
   useEffect(() => {
@@ -148,7 +150,7 @@ export default function App() {
   usePoll(async () => {
     try { const q = await api<Quote>(`/api/market/quote?symbol=${encodeURIComponent(symbol)}`); setQuote(q); setQuoteError(""); }
     catch (e) { setQuoteError(errText(e)); }
-  }, 5000, [symbol], ready);
+  }, 1500, [symbol], ready && !overview);
 
   // Candles for the chart.
   useEffect(() => { setCandles([]); setCandlesError(""); setCandlesLoading(true); }, [symbol, frame]);
@@ -335,6 +337,12 @@ export default function App() {
     return g;
   }, [position, dragLevels, ticket, aiSetup, mode, symbol]);
 
+  // Your paper fills on this chart, as buy and sell arrows.
+  const markers: Marker[] = useMemo(() => (paper?.trades ?? []).filter((t) => t.symbol === symbol).slice(-60).map((t) => ({
+    t: Math.floor(new Date(t.timestamp).getTime() / 1000), side: t.side,
+    text: t.realized_pnl ? signedMoney(t.realized_pnl).replace(".00", "") : t.side === "buy" ? "Buy" : "Sell",
+  })), [paper?.trades, symbol]);
+
   const round = (p: number) => Number(p.toPrecision(p >= 1000 ? 7 : 6));
   const onGuideDrag = (key: string, p: number) => {
     const v = round(p);
@@ -377,7 +385,8 @@ export default function App() {
         <main className="main">
           <ChartPanel instrument={instrument} frame={frame} onFrame={setFrame} quote={quote} quoteError={quoteError} theme={theme}
             candles={liveCandles} candlesError={candlesError} candlesLoading={candlesLoading} emas={emaPeriods} guides={guides}
-            onGuideDrag={onGuideDrag} onGuideDrop={(k, p) => void onGuideDrop(k, p)} />
+            onGuideDrag={onGuideDrag} onGuideDrop={(k, p) => void onGuideDrop(k, p)}
+            markers={markers} frameSeconds={STEP[frame] ?? 3600} onOverview={() => setOverview(true)} />
           <BottomPanel tab={bottomTab} onTab={setBottomTab} paper={paper} logs={logs} busy={busy} onSelectSymbol={setSymbol}
             onClosePosition={(p) => void closePosition(p)} onCancelOrder={(o) => void cancelOrder(o)} onCloseAll={() => void closeAll()}
             chat={chat} onSendChat={(t) => void sendChat(t)} chatPending={chatPending} aiConfigured={!!health?.ai_configured} strategyName={strategy?.name ?? ""} />
@@ -402,7 +411,8 @@ export default function App() {
                 onGenerate={() => void generateSetup()} setupMismatch={!!aiSetup && (aiSetup.symbol !== symbol || aiSetup.timeframe !== frame)}
                 strategies={strategies} strategy={strategy} strategyId={strategyId} onStrategy={(id) => { setStrategyId(id); setBacktest(null); }}
                 params={params} onParam={(k, v) => setParams((p) => ({ ...p, [k]: v }))} paramsDirty={!sameJSON(params, savedParams)} onSaveParams={() => void saveParams()} paramStatus={paramStatus}
-                onDuplicate={(n) => void duplicate(n)} backtest={backtest} onBacktest={() => void runBacktest()} busy={busy} message={modeMessage} />
+                onDuplicate={(n) => void duplicate(n)} backtest={backtest} onBacktest={() => void runBacktest()} busy={busy} message={modeMessage}
+                onOverview={() => setOverview(true)} />
             )}
             {inspector === "risk" && (
               <RiskPanel risk={risk} onChange={setRisk} dirty={!sameJSON(risk, savedRisk)} onSave={() => void saveRisk()}
@@ -416,6 +426,7 @@ export default function App() {
         theme={themePref} onTheme={setThemePref}
         version={updater.version} update={updater.state} onCheckUpdate={() => void updater.check()} onInstallUpdate={() => { setSettingsOpen(false); void updater.install(); }} />}
       {updater.showCard && <UpdateCard state={updater.state} onInstall={() => void updater.install()} onLater={updater.dismiss} />}
+      {overview && <Overview symbol={symbol} timeframe={frame} strategyId={strategyId} aiConfigured={!!health?.ai_configured} theme={theme} onClose={() => setOverview(false)} />}
       <Toasts items={toasts} />
     </div>
   );

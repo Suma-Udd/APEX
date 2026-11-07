@@ -3,6 +3,7 @@ import { MARKETS, SYMBOLS } from "../lib/constants";
 import { pct, price, tone } from "../lib/format";
 import type { MiniQuote, Position } from "../lib/types";
 import { Search } from "./Icons";
+import { Spark, Tick } from "./Motion";
 
 type Props = {
   selected: string; onSelect: (api: string) => void;
@@ -36,8 +37,9 @@ export default function Watchlist({ selected, onSelect, quotes, positions }: Pro
                       <b>{s.label}{held.has(s.api) && <i className="held" title="Open position" />}</b>
                       <small>{s.name}</small>
                     </span>
+                    {quote?.spark && <Spark points={quote.spark} up={quote.change_pct >= 0} />}
                     <span className="watch-px">
-                      <span className="num">{quote ? price(quote.price) : "–"}</span>
+                      {quote ? <Tick value={quote.price} className="num">{price(quote.price)}</Tick> : <span className="num">–</span>}
                       {quote ? <small className={`chg ${tone(quote.change_pct)}`}>{pct(quote.change_pct)}</small> : <small className="chg">&nbsp;</small>}
                     </span>
                   </button>

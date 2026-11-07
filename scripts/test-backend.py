@@ -149,6 +149,14 @@ check("backtest runs for every strategy", not bad, bad)
 r = P("/api/strategies/custom", {"name": "My EMA copy", "source_id": lst[0]["id"]}); cid = r.json().get("id") or r.json().get("strategy", {}).get("id")
 r2 = P("/api/backtest", {"strategy_id": cid, "symbol": "BTCUSDT", "timeframe": "1h"})
 check("custom copy backtests", r2.status_code == 200 and r2.json().get("status") == "completed", r2.text[:80])
+bad = []
+for s in lst:
+    r = P("/api/overview", {"strategy_id": s["id"], "symbol": "BTCUSDT", "timeframe": "1h"})
+    d = r.json() if r.status_code == 200 else {}
+    n = len(d.get("candles", []))
+    ok = r.status_code == 200 and n > 0 and all(0 <= l["signal_bar"] <= l["entry_bar"] <= l["exit_bar"] < n and len(l["steps"]) == 4 and all(st["text"] for st in l["steps"]) for l in d.get("lessons", []))
+    if not ok: bad.append((s["id"], r.status_code, r.text[:80]))
+check("AI Overview lessons for every strategy", not bad, bad)
 for s_ in lst: print("   ", s_["id"], P("/api/backtest", {"strategy_id": s_["id"], "symbol": "BTCUSDT", "timeframe": "1h"}).json().get("trades"), "trades")
 
 # AI Auto engine with a manual setup (no AI key needed for the step itself)
