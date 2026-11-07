@@ -3,7 +3,8 @@
 use std::net::TcpListener;
 use std::sync::Mutex;
 use tauri::{Manager, RunEvent, State};
-use tauri_plugin_shell::{process::CommandChild, ShellExt};
+use std::io::Write;
+use tauri_plugin_shell::{process::{CommandChild, CommandEvent}, ShellExt};
 
 struct Backend {
     port: u16,
@@ -41,13 +42,33 @@ fn main() {
             let data_dir = app.path().data_dir()?.join("APEX");
             std::fs::create_dir_all(&data_dir)?;
 
-            let (_rx, child) = app
+            let logs = data_dir.join("logs");
+            std::fs::create_dir_all(&logs)?;
+            let log_path = logs.join("backend-output.log");
+
+            let (mut rx, child) = app
                 .shell()
                 .sidecar("apex-backend")?
                 .args(["--port", &port.to_string()])
                 .env("APEX_TOKEN", &token)
                 .env("APEX_DATA", data_dir.to_string_lossy().to_string())
                 .spawn()?;
+
+            // Keep whatever the backend prints, so a crash on startup is never silent.
+            tauri::async_runtime::spawn(async move {
+                let mut file = std::fs::OpenOptions::new().create(true).write(true).truncate(true).open(&log_path).ok();
+                while let Some(event) = rx.recv().await {
+                    let line = match event {
+                        CommandEvent::Stdout(b) | CommandEvent::Stderr(b) => String::from_utf8_lossy(&b).trim_end().to_string(),
+                        CommandEvent::Error(e) => format!("[apex] backend error: {e}"),
+                        CommandEvent::Terminated(t) => format!("[apex] backend exited: code {:?}, signal {:?}", t.code, t.signal),
+                        _ => continue,
+                    };
+                    if let Some(f) = file.as_mut() {
+                        let _ = writeln!(f, "{line}");
+                    }
+                }
+            });
 
             app.manage(Backend { port, token: token.clone(), child: Mutex::new(Some(child)) });
             Ok(())

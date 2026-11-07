@@ -2,6 +2,7 @@
 // Starts the backend, checks it answers, then stops it.
 //   node scripts/smoke-backend.mjs            -> the built sidecar in src-tauri/binaries
 //   node scripts/smoke-backend.mjs --source   -> backend/main.py with the current python
+//   node scripts/smoke-backend.mjs --bin path -> a specific backend binary (e.g. the one inside APEX.app)
 import { spawn } from "node:child_process";
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,6 +20,9 @@ if (fromSource) {
   cmd = process.platform === "win32" ? "python" : "python3";
   args = ["main.py", "--port", String(port)];
   cwd = join(root, "backend");
+} else if (process.argv.includes("--bin")) {
+  cmd = resolve(process.argv[process.argv.indexOf("--bin") + 1]);
+  args = ["--port", String(port)];
 } else {
   const dir = join(root, "src-tauri", "binaries");
   const bin = readdirSync(dir).find((f) => f.startsWith("apex-backend-"));

@@ -23,7 +23,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: release
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -96,6 +96,8 @@ jobs:
           node scripts/build.mjs --backend 2>&1 | tee -a build.log
       - name: Backend starts and answers
         run: node scripts/smoke-backend.mjs
+      - name: App icons from app-icon.png
+        run: npm run icons
       - name: Build the app
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -109,6 +111,12 @@ jobs:
           # hdiutil on GitHub's Macs sometimes says "Resource busy"; one retry fixes it
           set -o pipefail
           { npx tauri build --bundles ${{ matrix.bundles }} "${extra[@]}" || { sleep 10; npx tauri build --bundles ${{ matrix.bundles }} "${extra[@]}"; }; } 2>&1 | tee -a build.log
+      - name: Mac - check the backend runs inside the signed app
+        if: matrix.name == 'mac'
+        run: |
+          app=src-tauri/target/release/bundle/macos/APEX.app
+          codesign -dv --entitlements - "$app/Contents/MacOS/apex-backend" 2>&1 | tee -a build.log | head -20
+          node scripts/smoke-backend.mjs --bin "$app/Contents/MacOS/apex-backend" 2>&1 | tee -a build.log
       - name: Show the error
         if: failure()
         run: |

@@ -15,7 +15,7 @@ async function getBackendInfo(): Promise<BackendInfo> {
       await new Promise((resolve) => window.setTimeout(resolve, 250));
     }
   }
-  throw new Error("The local backend did not start. Check the APEX logs folder (macOS: ~/Library/Application Support/APEX/logs, Windows: %APPDATA%\\APEX\\logs).");
+  throw new Error("The local backend did not start. Check backend-output.log in the APEX logs folder (macOS: ~/Library/Application Support/APEX/logs, Windows: %APPDATA%\\APEX\\logs).");
 }
 
 let backendSeen = false;

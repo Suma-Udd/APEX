@@ -1,3 +1,4 @@
+import logo from "../assets/logo.png";
 import type { Health, PaperState } from "../types";
 import { money, signedMoney, tone, pct } from "../format";
 import Flash from "./Flash";
@@ -14,7 +15,7 @@ export default function TopBar({ paper, health, offline, busy, canStart, startLa
   return (
     <header className="topbar">
       <div className="brand">
-        <span className="brand-mark">A</span>
+        <img className="brand-mark" src={logo} alt="" />
         <span className="brand-name">APEX</span>
         <span className="badge">PAPER</span>
       </div>
