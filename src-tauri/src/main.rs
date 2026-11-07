@@ -26,6 +26,24 @@ fn stop_backend(state: State<Backend>) {
     }
 }
 
+/// The app isn't notarized by Apple (that needs a paid developer account), so a
+/// downloaded copy carries macOS's quarantine flag. Once the user has allowed APEX
+/// to open, clear the flag on the whole bundle so the backend inside it can start too.
+#[cfg(target_os = "macos")]
+fn clear_quarantine() {
+    if let Ok(exe) = std::env::current_exe() {
+        // .../APEX.app/Contents/MacOS/apex -> .../APEX.app
+        if let Some(bundle) = exe.ancestors().nth(3) {
+            if bundle.extension().map_or(false, |e| e == "app") {
+                let _ = std::process::Command::new("/usr/bin/xattr")
+                    .args(["-dr", "com.apple.quarantine"])
+                    .arg(bundle)
+                    .status();
+            }
+        }
+    }
+}
+
 fn main() {
     // Free local port and a random per-launch token. Only this app knows the token.
     let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
@@ -39,6 +57,9 @@ fn main() {
         .setup(move |app| {
             // macOS: ~/Library/Application Support/APEX (same place older builds used).
             // Windows: %APPDATA%\APEX. Linux: ~/.local/share/APEX.
+            #[cfg(target_os = "macos")]
+            clear_quarantine();
+
             let data_dir = app.path().data_dir()?.join("APEX");
             std::fs::create_dir_all(&data_dir)?;
 

@@ -23,7 +23,7 @@ let backendSeen = false;
 // The Python sidecar can take a few seconds to unpack on first launch (longer on
 // Windows while Defender scans it), so retry connection errors until it answers once.
 async function fetchWithStartupRetry(url: string, init: RequestInit): Promise<Response> {
-  const attempts = backendSeen ? 1 : 40;
+  const attempts = backendSeen ? 1 : 120; // first launch on a Mac can take a while (security scan)
   for (let i = 0; ; i++) {
     try {
       const response = await fetch(url, init);
