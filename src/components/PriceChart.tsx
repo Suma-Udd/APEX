@@ -107,9 +107,20 @@ export default function PriceChart({ candles, emas = [], guides, onGuideDrag, on
 
   // Candles + volume.
   const lastKey = useRef("");
+  const prev = useRef<{ data: Candle[]; theme?: string }>({ data: [] });
   useEffect(() => {
     const s = candleSeries.current, v = volumeSeries.current;
     if (!s || !v) return;
+    const old = prev.current;
+    prev.current = { data: candles, theme };
+    // Live ticks only touch the newest candle: update it in place instead of redrawing everything.
+    const grows = candles.length === old.data.length || candles.length === old.data.length + 1;
+    if (old.theme === theme && candles.length > 1 && grows && old.data[0]?.t === candles[0].t && old.data[old.data.length - 2]?.t === candles[old.data.length - 2]?.t) {
+      const k = candles[candles.length - 1];
+      s.update({ time: k.t as UTCTimestamp, open: k.o, high: k.h, low: k.l, close: k.c });
+      v.update({ time: k.t as UTCTimestamp, value: k.v, color: alpha(k.c >= k.o ? colors.current.up : colors.current.down, 0.18) });
+      return;
+    }
     s.setData(candles.map((k) => ({ time: k.t as UTCTimestamp, open: k.o, high: k.h, low: k.l, close: k.c })));
     v.setData(candles.map((k) => ({ time: k.t as UTCTimestamp, value: k.v, color: alpha(k.c >= k.o ? colors.current.up : colors.current.down, 0.18) })));
     // Only snap the view when the instrument/timeframe changes, not on every refresh.

@@ -3,7 +3,7 @@ from copy import deepcopy
 
 BUILTIN_STRATEGIES = [
     {
-        "id": "trend-following-ema", "name": "Trend Following — EMA Cross", "category": "Trend",
+        "id": "trend-following-ema", "name": "Trend Following · EMA Cross", "category": "Trend",
         "description": "Follows directional moves after a fast EMA crosses a slow EMA, with an optional trend-strength filter.",
         "markets": ["Forex", "Crypto", "Metals", "Indices"], "timeframes": ["15m", "1h", "4h", "1d"],
         "indicators": [{"name": "EMA", "parameters": {"fast": 20, "slow": 50}}, {"name": "ADX", "parameters": {"period": 14, "minimum": 20}}],
@@ -14,7 +14,7 @@ BUILTIN_STRATEGIES = [
         "limitations": ["EMA crosses lag price and can whipsaw in sideways markets.", "ADX is a strength filter, not a directional signal."],
     },
     {
-        "id": "mean-reversion-bb-rsi", "name": "Mean Reversion — Bollinger + RSI", "category": "Mean Reversion",
+        "id": "mean-reversion-bb-rsi", "name": "Mean Reversion · Bollinger + RSI", "category": "Mean Reversion",
         "description": "Looks for price extremes relative to Bollinger Bands with RSI confirmation in range-bound conditions.",
         "markets": ["Forex", "Crypto", "Metals", "Indices"], "timeframes": ["15m", "1h", "4h"],
         "indicators": [{"name": "Bollinger Bands", "parameters": {"period": 20, "deviations": 2}}, {"name": "RSI", "parameters": {"period": 14}}],
@@ -25,7 +25,7 @@ BUILTIN_STRATEGIES = [
         "limitations": ["Can continue losing during strong trends.", "Requires a regime filter and strict stops."],
     },
     {
-        "id": "breakout-volatility", "name": "Breakout — Range Expansion", "category": "Breakout",
+        "id": "breakout-volatility", "name": "Breakout · Range Expansion", "category": "Breakout",
         "description": "Trades confirmed breaks of a recent range when volatility expands and volume confirms the move.",
         "markets": ["Forex", "Crypto", "Metals", "Indices"], "timeframes": ["5m", "15m", "1h", "4h"],
         "indicators": [{"name": "Donchian Channel", "parameters": {"period": 20}}, {"name": "ATR", "parameters": {"period": 14}}],
@@ -36,7 +36,7 @@ BUILTIN_STRATEGIES = [
         "limitations": ["False breakouts are common around low-liquidity periods.", "Requires close-confirmation, not intrabar touches."],
     },
     {
-        "id": "momentum-rsi-macd", "name": "Momentum — RSI + MACD", "category": "Momentum",
+        "id": "momentum-rsi-macd", "name": "Momentum · RSI + MACD", "category": "Momentum",
         "description": "Combines RSI momentum and MACD direction to filter weak or conflicting signals.",
         "markets": ["Forex", "Crypto", "Metals", "Indices"], "timeframes": ["15m", "1h", "4h", "1d"],
         "indicators": [{"name": "RSI", "parameters": {"period": 14}}, {"name": "MACD", "parameters": {"fast": 12, "slow": 26, "signal": 9}}],
@@ -47,7 +47,7 @@ BUILTIN_STRATEGIES = [
         "limitations": ["Momentum can remain overbought or oversold for extended periods."],
     },
     {
-        "id": "scalping-ema-vwap", "name": "Scalping — EMA + VWAP", "category": "Scalping",
+        "id": "scalping-ema-vwap", "name": "Scalping · EMA + VWAP", "category": "Scalping",
         "description": "A short-timeframe framework that looks for pullbacks to VWAP/EMA with tight predefined risk.",
         "markets": ["Forex", "Crypto", "Indices"], "timeframes": ["1m", "5m", "15m"],
         "indicators": [{"name": "EMA", "parameters": {"period": 9}}, {"name": "VWAP", "parameters": {"session": "regular"}}],
@@ -58,7 +58,7 @@ BUILTIN_STRATEGIES = [
         "limitations": ["Sensitive to spread, latency, fees and execution quality.", "Requires reliable intraday market data."],
     },
     {
-        "id": "swing-mtf", "name": "Swing — Multi-Timeframe Trend", "category": "Swing",
+        "id": "swing-mtf", "name": "Swing · Multi-Timeframe Trend", "category": "Swing",
         "description": "Uses a higher-timeframe trend filter and lower-timeframe pullback confirmation for multi-session setups.",
         "markets": ["Forex", "Crypto", "Metals", "Indices"], "timeframes": ["1h", "4h", "1d"],
         "indicators": [{"name": "EMA", "parameters": {"higher_timeframe": 200, "entry_timeframe": 20}}, {"name": "RSI", "parameters": {"period": 14}}],
@@ -69,7 +69,7 @@ BUILTIN_STRATEGIES = [
         "limitations": ["Requires synchronized higher- and lower-timeframe candles."],
     },
     {
-        "id": "grid-bounded", "name": "Grid — Bounded Exposure", "category": "Grid",
+        "id": "grid-bounded", "name": "Grid · Bounded Exposure", "category": "Grid",
         "description": "Places hypothetical staggered levels inside a defined range with strict total exposure caps.",
         "markets": ["Forex", "Crypto"], "timeframes": ["15m", "1h", "4h"],
         "indicators": [{"name": "Range", "parameters": {"lookback": 50}}],
@@ -80,7 +80,7 @@ BUILTIN_STRATEGIES = [
         "limitations": ["Grid strategies can accumulate directional inventory in a breakout.", "Never run without an explicit maximum exposure and invalidation rule."],
     },
     {
-        "id": "vwap-reversion", "name": "VWAP — Deviation Reversion", "category": "VWAP",
+        "id": "vwap-reversion", "name": "VWAP · Deviation Reversion", "category": "VWAP",
         "description": "Studies deviations from session VWAP and waits for price to re-enter a defined deviation band.",
         "markets": ["Forex", "Crypto", "Indices"], "timeframes": ["5m", "15m", "1h"],
         "indicators": [{"name": "VWAP", "parameters": {"session": "daily"}}, {"name": "Standard Deviation", "parameters": {"bands": 2}}],
@@ -91,7 +91,7 @@ BUILTIN_STRATEGIES = [
         "limitations": ["VWAP is session-dependent and can be less meaningful in 24/7 markets without a chosen session convention."],
     },
     {
-        "id": "macd-crossover", "name": "MACD — Signal Crossover", "category": "Momentum",
+        "id": "macd-crossover", "name": "MACD · Signal Crossover", "category": "Momentum",
         "description": "Uses MACD line/signal crossovers and histogram direction as a momentum-change framework.",
         "markets": ["Forex", "Crypto", "Metals", "Indices"], "timeframes": ["15m", "1h", "4h", "1d"],
         "indicators": [{"name": "MACD", "parameters": {"fast": 12, "slow": 26, "signal": 9}}],

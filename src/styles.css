@@ -91,7 +91,7 @@ button { cursor: default; }
 .row.center { justify-content: center; }
 
 /* ── Layout ─────────────────────────────────────────────────────────── */
-.app { height: 100%; display: flex; flex-direction: column; }
+.app { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
 .workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: 228px minmax(0, 1fr) 304px; }
 .workspace.no-sidebar { grid-template-columns: minmax(0, 1fr) 304px; }
 .main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
@@ -292,7 +292,7 @@ select option { background: var(--raised); color: var(--text); }
 /* ── Inspector ──────────────────────────────────────────────────────── */
 .inspector { min-height: 0; display: flex; flex-direction: column; background: var(--chrome); border-left: 1px solid var(--hairline); }
 .inspector .inspector-tabs { margin: 12px 14px 0; width: auto; }
-.inspector-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; animation: fade 0.18s var(--ease); }
+.inspector-body { flex: 1; min-height: 0; min-width: 0; overflow-y: auto; overflow-x: hidden; padding: 14px; animation: fade 0.18s var(--ease); }
 @keyframes fade { from { opacity: 0; transform: translateY(2px); } }
 
 .pane { display: flex; flex-direction: column; gap: 22px; }
@@ -333,11 +333,49 @@ select option { background: var(--raised); color: var(--text); }
 .setup.long .setup-title b { color: var(--up); }
 .setup.short .setup-title b { color: var(--down); }
 .setup-title small { color: var(--text-3); font-size: 11px; }
-.rules summary { font-size: 12px; color: var(--accent); font-weight: 500; list-style: none; }
+.pane-label { color: var(--text-3); font-size: 11px !important; text-transform: uppercase; letter-spacing: 0.05em; padding-left: 2px; }
+.strat-card {
+  position: relative; display: flex; flex-direction: column; gap: 4px; padding: 12px 14px 13px; border-radius: 12px; background: var(--fill);
+  transition: background 0.2s var(--ease), transform 0.2s var(--ease);
+}
+.strat-card:hover { background: var(--fill-2); }
+.strat-card:active { transform: scale(0.99); }
+.strat-card:focus-within { box-shadow: 0 0 0 2px var(--accent); }
+.strat-card select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.strat-top { display: flex; align-items: center; justify-content: space-between; }
+.strat-cat { font-size: 11px; font-weight: 600; color: var(--accent); }
+.strat-chev { color: var(--text-3); display: grid; }
+.strat-name { font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
+.strat-desc { font-size: 12px; line-height: 1.45; color: var(--text-2); }
+.rules { border-radius: 10px; }
+.rules summary { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); font-weight: 500; list-style: none; padding: 2px 2px; cursor: pointer; }
+.rules summary:hover { color: var(--text); }
 .rules summary::-webkit-details-marker { display: none; }
-.rules[open] summary { margin-bottom: 6px; }
-.rules h4 { margin: 8px 0 2px; font-size: 11px; color: var(--text-3); font-weight: 600; }
-.rules p { margin: 0 0 4px; font-size: 12px; color: var(--text-2); line-height: 1.45; }
+.rules summary svg { transition: transform 0.22s var(--ease); color: var(--text-3); }
+.rules[open] summary svg { transform: rotate(90deg); }
+.rules-body { display: flex; flex-direction: column; gap: 10px; padding: 10px 2px 2px; animation: fade 0.25s var(--ease); }
+.rules h4 { display: flex; align-items: center; gap: 6px; margin: 0 0 3px; font-size: 11px; color: var(--text-3); font-weight: 600; }
+.rules h4 i { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
+.rules h4 i.up-dot { background: var(--up); }
+.rules h4 i.down-dot { background: var(--down); }
+.rules p { margin: 0 0 3px; font-size: 12px; color: var(--text-2); line-height: 1.45; padding-left: 12px; }
+.param { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 46px; padding: 0 8px 0 12px; }
+.param + .param { border-top: 1px solid var(--hairline); }
+.param-label { display: flex; flex-direction: column; gap: 1px; color: var(--text); font-weight: 500; }
+.param-label small { font-size: 11px; font-weight: 400; color: var(--text-3); }
+.stepper { display: flex; align-items: center; border-radius: 8px; background: var(--fill); padding: 2px; }
+.stepper button { width: 26px; height: 26px; border: 0; border-radius: 6px; background: transparent; color: var(--text-2); font-size: 15px; line-height: 1; transition: background 0.15s, color 0.15s; }
+.stepper button:hover:not(:disabled) { background: var(--raised-2); color: var(--text); }
+.stepper button:active:not(:disabled) { transform: scale(0.92); }
+.stepper button:disabled { opacity: 0.3; }
+.stepper input { width: 44px; height: 26px; border: 0; background: transparent; text-align: center; font-weight: 600; color: var(--text); outline: none; }
+.stepper input:focus { color: var(--accent); }
+.stepper.locked { opacity: 0.6; }
+.pill.unsaved { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); animation: pop 0.25s var(--ease); }
+.bt-card { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px; border-radius: 12px; background: var(--fill); }
+.bt-card .row-between > span { display: flex; flex-direction: column; gap: 2px; }
+.bt-card .row-between b { font-size: 13px; }
+.bt-card .row-between small { font-size: 11.5px; color: var(--text-3); line-height: 1.4; }
 .inline { display: flex; gap: 6px; }
 
 .bt { display: flex; flex-direction: column; gap: 12px; }
@@ -432,9 +470,11 @@ select option { background: var(--raised); color: var(--text); }
 }
 .ov-promo:hover { background: color-mix(in srgb, var(--accent) 24%, transparent); }
 .ov-promo:active { transform: scale(0.985); }
-.ov-promo span:first-child { display: flex; flex-direction: column; gap: 3px; flex: 1; }
+.ov-promo-text { display: flex; flex-direction: column; gap: 3px; flex: 1; }
 .ov-promo b { color: var(--accent); font-size: 13px; }
 .ov-promo small { color: var(--text-2); font-size: 12px; line-height: 1.4; }
+.ov-promo-icon { flex-shrink: 0; width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: var(--accent); color: #fff; }
+.ov-promo-icon svg { margin-left: 2px; }
 .ov-promo .chev { font-size: 22px; color: var(--accent); line-height: 1; }
 
 /* ── AI Overview ────────────────────────────────────────────────────── */
