@@ -1,10 +1,13 @@
 name: Release
 
 # Actions > Release > Run workflow.
-#   Version empty  -> test build. Installers show up as artifacts on the run, nothing is published.
+#   Version empty  -> test build (same as pushing a build/... branch). Installers show up as artifacts on the run, nothing is published.
 #   Version 0.3.0  -> bumps the version, tags v0.3.0, builds Windows + Mac, publishes the release.
 #                     Installed apps see it within a few hours (or via Settings > Check for updates).
 on:
+  # Pushing a branch named build/<anything> makes a test build too.
+  push:
+    branches: ["build/**"]
   workflow_dispatch:
     inputs:
       version:
