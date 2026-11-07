@@ -17,7 +17,7 @@ BARS_PER_YEAR = {"1m": 525600, "5m": 105120, "15m": 35040, "30m": 17520, "1h": 8
 
 
 def run(strategy_id, bars, params, symbol, timeframe, starting_balance=10000.0, risk_pct=0.5,
-        slippage_bps=1.0, base_id=None):
+        slippage_bps=1.0, base_id=None, keep_engine=False):
     s = inst.spec(symbol)
     half = s["half_spread_bps"] / 10000
     lev = s["leverage"]
@@ -32,6 +32,7 @@ def run(strategy_id, bars, params, symbol, timeframe, starting_balance=10000.0, 
     entry_i = None
     entry_fee = 0.0
     pending = None     # Signal decided at previous close
+    entry_info = {}    # why and where the open position was entered (for the lesson replay)
     trades, curve = [], []
     fees_total = 0.0
     bars_in_market = 0
@@ -43,7 +44,7 @@ def run(strategy_id, bars, params, symbol, timeframe, starting_balance=10000.0, 
         return p * (1 - half) * (1 - slippage_bps / 10000)
 
     def close(i, price, reason, maker=False):
-        nonlocal cash, qty, entry, stop, tp, entry_i, fees_total, entry_fee
+        nonlocal cash, qty, entry, stop, tp, entry_i, fees_total, entry_fee, entry_info
         if qty == 0:
             return
         fill = price if maker else (sell_px(price) if qty > 0 else buy_px(price))
@@ -57,14 +58,17 @@ def run(strategy_id, bars, params, symbol, timeframe, starting_balance=10000.0, 
             "entry": round(entry, 8), "exit": round(fill, 8), "quantity": round(abs(qty), 8),
             "net_pnl": round(pnl - fee - entry_fee, 2), "r": round((pnl - fee - entry_fee) / risk_amt, 2) if risk_amt else None,
             "bars": i - entry_i, "reason": reason,
+            "entry_index": entry_i, "exit_index": i, "signal_index": entry_info.get("signal_index"),
+            "entry_reason": entry_info.get("reason", ""), "stop": entry_info.get("stop"), "take_profit": entry_info.get("take_profit"),
+            "risk_amount": round(risk_amt, 2) if risk_amt else None,
         })
-        qty, stop, tp, entry_i, entry_fee = 0.0, None, None, None, 0.0
+        qty, stop, tp, entry_i, entry_fee, entry_info = 0.0, None, None, None, 0.0, {}
 
     def equity_at(price):
         return cash + (price - entry) * qty if qty else cash
 
     def open_(i, sig, price):
-        nonlocal cash, qty, entry, stop, tp, entry_i, fees_total, entry_fee
+        nonlocal cash, qty, entry, stop, tp, entry_i, fees_total, entry_fee, entry_info
         direction = 1 if sig.target > 0 else -1
         fill = buy_px(price) if direction > 0 else sell_px(price)
         eq = equity_at(price)
@@ -85,6 +89,8 @@ def run(strategy_id, bars, params, symbol, timeframe, starting_balance=10000.0, 
         shift = fill - strat.c[i - 1] if i > 0 else 0
         stop = sig.stop + shift if sig.stop else None
         tp = sig.take_profit + shift if sig.take_profit else None
+        entry_info = {"reason": sig.reason, "signal_index": i - 1,
+                      "stop": round(stop, 8) if stop else None, "take_profit": round(tp, 8) if tp else None}
 
     def rebalance_grid(i, target, price):
         """Grid strategy: move inventory to a fractional target."""
@@ -162,6 +168,9 @@ def run(strategy_id, bars, params, symbol, timeframe, starting_balance=10000.0, 
 
     out = _stats(trades, curve, starting_balance, timeframe, bars_in_market, len(curve), fees_total, lev, risk_pct)
     out["open_position"] = open_position
+    if keep_engine:
+        out["engine"] = strat
+        out["all_trades"] = trades
     out["pending_signal"] = None if pending is None else {"target": pending.target, "stop": pending.stop, "take_profit": pending.take_profit, "reason": pending.reason}
     return out
 

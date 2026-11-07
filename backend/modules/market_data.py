@@ -39,7 +39,7 @@ def _get(url: str):
 
 
 _QUOTE_CACHE: dict = {}
-_QUOTE_TTL = 3.0  # seconds; several UI timers ask for the same symbol at once
+_QUOTE_TTL = 1.0  # seconds; several UI timers ask for the same symbol at once
 
 
 def quote(symbol: str):
@@ -55,11 +55,27 @@ def quote(symbol: str):
 _POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="apex-quotes")
 
 
+_SPARK_CACHE: dict = {}
+
+
+def spark(symbol: str):
+    """Last ~24 hourly closes for the watchlist mini chart, cached for 5 minutes."""
+    hit = _SPARK_CACHE.get(symbol)
+    if hit and time.time() - hit[0] < 300:
+        return hit[1]
+    try:
+        closes = [round(b["c"], 8) for b in candles(symbol, "1h", 26)["candles"]][-24:]
+    except Exception:
+        closes = hit[1] if hit else []
+    _SPARK_CACHE[symbol] = (time.time(), closes)
+    return closes
+
+
 def quotes(symbols):
     """Quotes for many symbols at once (the watchlist). A failing symbol is skipped."""
     def one(sym):
         try:
-            return quote(sym)
+            return {**quote(sym), "spark": spark(sym.strip().upper())}
         except Exception:
             return None
     return [q for q in _POOL.map(one, symbols[:40]) if q]

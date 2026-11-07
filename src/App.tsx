@@ -4,6 +4,7 @@ import { SYMBOLS, findSymbol, labelFor } from "./lib/constants";
 import { errText, price as fmtPrice, signedMoney } from "./lib/format";
 import { useTheme } from "./lib/theme";
 import { useUpdater } from "./lib/updater";
+import { useLivePrices } from "./lib/live";
 import type {
   AISettings, AISetup, Backtest, Candle, Health, LogItem, MiniQuote, OperationMode, Order, PaperState, Position, Quote, Risk,
   Strategy, StrategyResponse,
@@ -19,13 +20,15 @@ import SettingsModal from "./components/SettingsModal";
 import Startup from "./components/Startup";
 import Toasts, { Toast } from "./components/Toasts";
 import UpdateCard from "./components/UpdateCard";
-import type { Guide } from "./components/PriceChart";
+import type { Guide, Marker } from "./components/PriceChart";
+import Overview from "./components/Overview";
 import { Alert } from "./components/Icons";
 
 const DEFAULT_RISK: Risk = { risk_pct: 0.5, max_drawdown_pct: 5, max_open_positions: 3, daily_loss_limit_pct: 2 };
 const EMPTY_TICKET: TicketState = { side: "buy", type: "market", qty: "1", limit: "", stop: "", sl: "", tp: "" };
 const sameJSON = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const WATCH = SYMBOLS.map((s) => s.api).join(",");
+const CRYPTO = SYMBOLS.filter((s) => s.market === "Crypto").map((s) => s.api);
 const STEP: Record<string, number> = { "1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400, "1w": 604800 };
 
 function stored<T extends string>(key: string, fallback: T): T {
@@ -65,7 +68,7 @@ export default function App() {
   const [frame, setFrameRaw] = useState<string>(() => stored("apex.frame", "1h"));
   const setSymbol = (s: string) => { setSymbolRaw(s); store("apex.symbol", s); };
   const setFrame = (f: string) => { setFrameRaw(f); store("apex.frame", f); };
-  const [quote, setQuote] = useState<Quote | null>(null);
+  const [polledQuote, setQuote] = useState<Quote | null>(null);
   const [quoteError, setQuoteError] = useState("");
   const [candles, setCandles] = useState<Candle[]>([]);
   const [candlesError, setCandlesError] = useState("");
@@ -85,6 +88,7 @@ export default function App() {
   const [chat, setChat] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
   const [chatPending, setChatPending] = useState(false);
   const [dragLevels, setDragLevels] = useState<{ sl?: number; tp?: number }>({});
+  const [overview, setOverview] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastId = useRef(0);
   const updater = useUpdater();
@@ -122,7 +126,7 @@ export default function App() {
       setPaper((old) => (sameJSON(old, p) ? old : p)); setOffline(false);
     } catch { setOffline(true); }
   }, []);
-  usePoll(pollPaper, 3000, [], ready);
+  usePoll(pollPaper, 2000, [], ready);
   usePoll(async () => { try { setHealth(await api<Health>("/api/health")); } catch { /* paper poll reports offline */ } }, 20000, [], ready);
   usePoll(async () => {
     const l = await api<LogItem[]>("/api/logs?limit=150");
@@ -131,7 +135,7 @@ export default function App() {
   usePoll(async () => {
     const list = await api<MiniQuote[]>(`/api/market/quotes?symbols=${encodeURIComponent(WATCH)}`);
     setWatch(Object.fromEntries(list.map((q) => [q.symbol, q])));
-  }, 15000, [], ready && sidebar);
+  }, 10000, [], ready && sidebar);
 
   // Strategy parameters: load when the selected strategy changes (not every poll).
   useEffect(() => {
@@ -145,10 +149,24 @@ export default function App() {
 
   // Quote for the selected symbol.
   useEffect(() => { setQuote(null); setQuoteError(""); }, [symbol]);
+  // Crypto streams tick by tick from Binance. Everything else polls the backend.
+  const live = useLivePrices(CRYPTO, symbol, ready && !overview);
+  const streaming = live.connected && CRYPTO.includes(symbol);
   usePoll(async () => {
     try { const q = await api<Quote>(`/api/market/quote?symbol=${encodeURIComponent(symbol)}`); setQuote(q); setQuoteError(""); }
     catch (e) { setQuoteError(errText(e)); }
-  }, 5000, [symbol], ready);
+  }, streaming ? 5000 : 1500, [symbol, streaming], ready && !overview);
+  const tick = live.connected ? live.ticks[symbol] : undefined;
+  const quote: Quote | null = useMemo(() => {
+    if (!polledQuote || polledQuote.symbol !== symbol || !tick?.price) return polledQuote;
+    return { ...polledQuote, price: tick.price, bid: tick.bid ?? tick.price, ask: tick.ask ?? tick.price, change_pct: tick.change_pct ?? polledQuote.change_pct, delayed: false, source: "Binance live stream" };
+  }, [polledQuote, tick, symbol]);
+  const watchLive = useMemo(() => {
+    if (!live.connected) return watch;
+    const out = { ...watch };
+    for (const [sym, t] of Object.entries(live.ticks)) if (out[sym] && t.price) out[sym] = { ...out[sym], price: t.price, change_pct: t.change_pct ?? out[sym].change_pct };
+    return out;
+  }, [watch, live]);
 
   // Candles for the chart.
   useEffect(() => { setCandles([]); setCandlesError(""); setCandlesLoading(true); }, [symbol, frame]);
@@ -165,8 +183,14 @@ export default function App() {
     if (!candles.length || !quote || quote.symbol !== symbol) return candles;
     const last = candles[candles.length - 1];
     const step = STEP[frame] ?? 3600;
-    if (Date.now() / 1000 > last.t + step) return candles; // market closed or a new candle is due
     const c = quote.price;
+    const now = Date.now() / 1000;
+    if (now >= last.t + step) {
+      // A new candle opened since the last refresh. Start it locally while the market is trading.
+      if (quote.session && !quote.session.open) return candles;
+      if (now >= last.t + 2 * step) return candles;
+      return [...candles, { t: last.t + step, o: last.c, h: Math.max(last.c, c), l: Math.min(last.c, c), c, v: 0 }];
+    }
     if (c === last.c) return candles;
     return [...candles.slice(0, -1), { ...last, c, h: Math.max(last.h, c), l: Math.min(last.l, c) }];
   }, [candles, quote, symbol, frame]);
@@ -335,6 +359,12 @@ export default function App() {
     return g;
   }, [position, dragLevels, ticket, aiSetup, mode, symbol]);
 
+  // Your paper fills on this chart, as buy and sell arrows.
+  const markers: Marker[] = useMemo(() => (paper?.trades ?? []).filter((t) => t.symbol === symbol).slice(-60).map((t) => ({
+    t: Math.floor(new Date(t.timestamp).getTime() / 1000), side: t.side,
+    text: t.realized_pnl ? signedMoney(t.realized_pnl).replace(".00", "") : t.side === "buy" ? "Buy" : "Sell",
+  })), [paper?.trades, symbol]);
+
   const round = (p: number) => Number(p.toPrecision(p >= 1000 ? 7 : 6));
   const onGuideDrag = (key: string, p: number) => {
     const v = round(p);
@@ -372,12 +402,13 @@ export default function App() {
       )}
 
       <div className={`workspace ${sidebar ? "" : "no-sidebar"}`}>
-        {sidebar && <Watchlist selected={symbol} onSelect={setSymbol} quotes={watch} positions={paper?.positions ?? []} />}
+        {sidebar && <Watchlist selected={symbol} onSelect={setSymbol} quotes={watchLive} positions={paper?.positions ?? []} />}
 
         <main className="main">
           <ChartPanel instrument={instrument} frame={frame} onFrame={setFrame} quote={quote} quoteError={quoteError} theme={theme}
             candles={liveCandles} candlesError={candlesError} candlesLoading={candlesLoading} emas={emaPeriods} guides={guides}
-            onGuideDrag={onGuideDrag} onGuideDrop={(k, p) => void onGuideDrop(k, p)} />
+            onGuideDrag={onGuideDrag} onGuideDrop={(k, p) => void onGuideDrop(k, p)}
+            markers={markers} frameSeconds={STEP[frame] ?? 3600} onOverview={() => setOverview(true)} />
           <BottomPanel tab={bottomTab} onTab={setBottomTab} paper={paper} logs={logs} busy={busy} onSelectSymbol={setSymbol}
             onClosePosition={(p) => void closePosition(p)} onCancelOrder={(o) => void cancelOrder(o)} onCloseAll={() => void closeAll()}
             chat={chat} onSendChat={(t) => void sendChat(t)} chatPending={chatPending} aiConfigured={!!health?.ai_configured} strategyName={strategy?.name ?? ""} />
@@ -402,7 +433,8 @@ export default function App() {
                 onGenerate={() => void generateSetup()} setupMismatch={!!aiSetup && (aiSetup.symbol !== symbol || aiSetup.timeframe !== frame)}
                 strategies={strategies} strategy={strategy} strategyId={strategyId} onStrategy={(id) => { setStrategyId(id); setBacktest(null); }}
                 params={params} onParam={(k, v) => setParams((p) => ({ ...p, [k]: v }))} paramsDirty={!sameJSON(params, savedParams)} onSaveParams={() => void saveParams()} paramStatus={paramStatus}
-                onDuplicate={(n) => void duplicate(n)} backtest={backtest} onBacktest={() => void runBacktest()} busy={busy} message={modeMessage} />
+                onDuplicate={(n) => void duplicate(n)} backtest={backtest} onBacktest={() => void runBacktest()} busy={busy} message={modeMessage}
+                onOverview={() => setOverview(true)} />
             )}
             {inspector === "risk" && (
               <RiskPanel risk={risk} onChange={setRisk} dirty={!sameJSON(risk, savedRisk)} onSave={() => void saveRisk()}
@@ -416,6 +448,7 @@ export default function App() {
         theme={themePref} onTheme={setThemePref}
         version={updater.version} update={updater.state} onCheckUpdate={() => void updater.check()} onInstallUpdate={() => { setSettingsOpen(false); void updater.install(); }} />}
       {updater.showCard && <UpdateCard state={updater.state} onInstall={() => void updater.install()} onLater={updater.dismiss} />}
+      {overview && <Overview symbol={symbol} timeframe={frame} strategyId={strategyId} aiConfigured={!!health?.ai_configured} theme={theme} onClose={() => setOverview(false)} />}
       <Toasts items={toasts} />
     </div>
   );

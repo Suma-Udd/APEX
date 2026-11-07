@@ -1,20 +1,34 @@
-import { useMemo, useState } from "react";
-import PriceChart, { Guide } from "./PriceChart";
+import { useEffect, useMemo, useState } from "react";
+import PriceChart, { Guide, Marker } from "./PriceChart";
 import { FRAMES, Instrument } from "../lib/constants";
 import type { Candle, Quote } from "../lib/types";
 import { pct, price, tone } from "../lib/format";
-import { External } from "./Icons";
+import { External, Lesson } from "./Icons";
+import { Tick } from "./Motion";
 
 type Props = {
   instrument: Instrument; frame: string; onFrame: (api: string) => void;
   quote: Quote | null; quoteError: string; candles: Candle[]; candlesError: string; candlesLoading: boolean;
   emas: { period: number; color: string }[]; guides: Guide[]; theme: string;
   onGuideDrag: (key: string, p: number) => void; onGuideDrop: (key: string, p: number) => void;
+  markers: Marker[]; frameSeconds: number; onOverview: () => void;
 };
 
 function tradingViewUrl(symbol: string, interval: string, theme: string) {
   const params = new URLSearchParams({ symbol, interval, theme, style: "1", timezone: "Etc/UTC", withdateranges: "1", hide_side_toolbar: "0", allow_symbol_change: "0", saveimage: "0", hideideas: "1", details: "0", calendar: "0", hotlist: "0" });
   return `https://www.tradingview.com/widgetembed/?${params.toString()}`;
+}
+
+/** Time left until the current candle closes, ticking every second. */
+function CandleClock({ last, step }: { last?: number; step: number }) {
+  const [now, setNow] = useState(() => Date.now() / 1000);
+  useEffect(() => { const id = window.setInterval(() => setNow(Date.now() / 1000), 1000); return () => window.clearInterval(id); }, []);
+  if (!last) return null;
+  const left = last + step - now;
+  if (left <= 0 || left > step) return null;
+  const s = Math.floor(left), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  const two = (n: number) => String(n).padStart(2, "0");
+  return <span className="clock num" title="Time until this candle closes">{h ? `${h}:${two(m)}` : m}:{two(sec)}</span>;
 }
 
 const when = (iso: string) => new Date(iso).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
@@ -34,11 +48,12 @@ export default function ChartPanel(p: Props) {
           <p className="meta">
             {p.instrument.name !== p.instrument.label && <>{p.instrument.name} · </>}{p.instrument.label}
             {s && <span className={`session ${s.open ? "open" : ""}`} title={s.hours}>{s.open ? "Market open" : `Closed${s.next_open ? `, opens ${when(s.next_open)}` : ""}`}</span>}
-            {q?.delayed && <span className="muted" title={q.source}>Delayed</span>}
+            {q?.delayed ? <span className="muted" title={q.source}>Delayed</span> : q && s?.open !== false && <span className="live-tag"><i />Live</span>}
+            <CandleClock last={p.candles[p.candles.length - 1]?.t} step={p.frameSeconds} />
           </p>
           {q ? (
             <p className="last">
-              <span className="num">{price(q.price)}</span>
+              <Tick value={q.price} className="num">{price(q.price)}</Tick>
               <span className={`num change ${tone(q.change_pct)}`}>{change > 0 ? "+" : ""}{price(change)} ({pct(q.change_pct)})</span>
             </p>
           ) : (
@@ -46,6 +61,7 @@ export default function ChartPanel(p: Props) {
           )}
         </div>
         <div className="chart-tools">
+          <button className="btn ov-btn" onClick={p.onOverview} title="Replay the strategy on recent history and see why it trades"><Lesson size={15} />AI Overview</button>
           <div className="seg" role="tablist" aria-label="Timeframe">
             {FRAMES.map((f) => <button key={f.api} role="tab" aria-selected={p.frame === f.api} className={p.frame === f.api ? "on" : ""} onClick={() => p.onFrame(f.api)}>{f.label}</button>)}
           </div>
@@ -60,7 +76,7 @@ export default function ChartPanel(p: Props) {
       <div className="chart-area">
         {view === "apex" ? (
           <PriceChart candles={p.candles} emas={p.emas} guides={p.guides} onGuideDrag={p.onGuideDrag} onGuideDrop={p.onGuideDrop}
-            loading={p.candlesLoading} error={p.candlesError} theme={p.theme} />
+            loading={p.candlesLoading} error={p.candlesError} theme={p.theme} markers={p.markers} />
         ) : (
           <iframe key={tvUrl} title="TradingView chart" src={tvUrl} className="tv-frame" allow="fullscreen" />
         )}
