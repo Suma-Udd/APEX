@@ -13,7 +13,7 @@ const venvPy = isWin ? join(venv, "Scripts", "python.exe") : join(venv, "bin", "
 if (!existsSync(venvPy)) {
   const py = isWin ? ["py", "-3"] : ["python3"];
   console.log("Creating Python virtual environment…");
-  const r = spawnSync(py[0], [...py.slice(1), "-m", "venv", venv], { stdio: "inherit", shell: isWin });
+  const r = spawnSync(py[0], [...py.slice(1), "-m", "venv", venv], { stdio: "inherit" });
   if (r.status !== 0) { console.error("Python 3.10+ is required: https://www.python.org"); process.exit(1); }
   spawnSync(venvPy, ["-m", "pip", "install", "-r", join(root, "backend", "requirements.txt")], { stdio: "inherit" });
 }

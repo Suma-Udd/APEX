@@ -68,7 +68,7 @@ jobs:
             os: windows-latest
             bundles: nsis
           - name: mac
-            os: macos-14   # Apple Silicon
+            os: macos-latest   # Apple Silicon
             bundles: app,dmg
     runs-on: ${{ matrix.os }}
     defaults:
@@ -91,7 +91,9 @@ jobs:
           workspaces: src-tauri
       - run: npm ci
       - name: Build the Python backend
-        run: node scripts/build.mjs --backend
+        run: |
+          set -o pipefail
+          node scripts/build.mjs --backend 2>&1 | tee -a build.log
       - name: Backend starts and answers
         run: node scripts/smoke-backend.mjs
       - name: Build the app
@@ -105,7 +107,13 @@ jobs:
             extra=(--config '{"bundle":{"createUpdaterArtifacts":false}}')
           fi
           # hdiutil on GitHub's Macs sometimes says "Resource busy"; one retry fixes it
-          npx tauri build --bundles ${{ matrix.bundles }} "${extra[@]}" || { sleep 10; npx tauri build --bundles ${{ matrix.bundles }} "${extra[@]}"; }
+          set -o pipefail
+          { npx tauri build --bundles ${{ matrix.bundles }} "${extra[@]}" || { sleep 10; npx tauri build --bundles ${{ matrix.bundles }} "${extra[@]}"; }; } 2>&1 | tee -a build.log
+      - name: Show the error
+        if: failure()
+        run: |
+          # Annotations are readable without logging in, so put the end of the log there.
+          [ -f build.log ] && tail -n 25 build.log | sed 's/^/::error::/' || true
       - name: Collect installers
         run: |
           mkdir -p out

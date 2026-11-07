@@ -17,13 +17,15 @@ const npx = isWin ? "npx.cmd" : "npx";
 
 function run(cmd, cmdArgs, opts = {}) {
   console.log(`\n> ${cmd} ${cmdArgs.join(" ")}`);
-  const r = spawnSync(cmd, cmdArgs, { cwd: root, stdio: "inherit", shell: isWin, ...opts });
+  // Only npm/npx (.cmd files) need a shell on Windows. Everything else runs directly, so
+  // arguments with spaces or characters like > and ( reach the program untouched.
+  const r = spawnSync(cmd, cmdArgs, { cwd: root, stdio: "inherit", shell: isWin && /\.cmd$/i.test(cmd), ...opts });
   if (r.status !== 0) { console.error(`\nFailed: ${cmd} ${cmdArgs.join(" ")}`); process.exit(r.status ?? 1); }
 }
 
 function findPython() {
   for (const [cmd, pre] of isWin ? [["py", ["-3"]], ["python", []], ["python3", []]] : [["python3", []], ["python", []]]) {
-    const r = spawnSync(cmd, [...pre, "-c", "import sys; print(sys.version_info >= (3, 10))"], { encoding: "utf8", shell: isWin });
+    const r = spawnSync(cmd, [...pre, "-c", "import sys; print(sys.version_info >= (3, 10))"], { encoding: "utf8" });
     if (r.status === 0 && r.stdout.trim() === "True") return [cmd, pre];
   }
   console.error("Python 3.10+ not found. Install it from https://www.python.org (on Windows tick 'Add python.exe to PATH').");
