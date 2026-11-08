@@ -410,6 +410,12 @@ select option { background: var(--raised); color: var(--text); }
 .sheet h2 { margin: 0; font-size: 15px; font-weight: 600; }
 .sheet h3 { margin: 10px 0 0; font-size: 12px; font-weight: 600; color: var(--text-3); }
 .sheet .form-row input { background: transparent; }
+.sheet.confirm { width: min(380px, calc(100vw - 32px)); gap: 8px; }
+.sheet.confirm p { margin: 0; font-size: 13px; line-height: 1.45; color: var(--text-2); }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.confirm-actions .btn { height: 30px; padding: 0 14px; }
+.btn.destructive.solid { background: var(--down); color: #fff; box-shadow: none; }
+.btn.destructive.solid:hover:not(:disabled) { background: var(--down); filter: brightness(1.08); }
 .about { display: flex; align-items: center; justify-content: space-between; }
 .notify-card { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 10px; background: var(--fill); }
 .notify-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
