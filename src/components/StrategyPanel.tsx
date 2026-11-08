@@ -11,7 +11,6 @@ type Props = {
   params: Record<string, number>; onParam: (k: string, v: number) => void; paramsDirty: boolean; onSaveParams: () => void; paramStatus: string;
   onDuplicate: (name: string) => void;
   backtest: Backtest | null; onBacktest: () => void; busy: boolean; message: string;
-  onOverview: () => void;
 };
 
 const MODES: { id: OperationMode; label: string; hint: string }[] = [
@@ -126,11 +125,6 @@ export default function StrategyPanel(p: Props) {
 
       <section>
         <h3 className="pane-label">Test it</h3>
-        <button className="ov-promo" onClick={p.onOverview}>
-          <span className="ov-promo-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5L8 5.5Z" fill="currentColor" /></svg></span>
-          <span className="ov-promo-text"><b>AI Overview</b><small>Watch it trade recent history and hear why it takes each trade.</small></span>
-          <span className="chev" aria-hidden="true">›</span>
-        </button>
         <div className="bt-card">
           <div className="row-between">
             <span><b>Backtest</b><small>Last 1,000 candles, with spread, fees and your risk per trade.</small></span>

@@ -3,7 +3,7 @@ import PriceChart, { Guide, Marker } from "./PriceChart";
 import { FRAMES, Instrument } from "../lib/constants";
 import type { Candle, Quote } from "../lib/types";
 import { pct, price, tone } from "../lib/format";
-import { External, Lesson } from "./Icons";
+import { External } from "./Icons";
 import { Tick } from "./Motion";
 
 type Props = {
@@ -11,7 +11,7 @@ type Props = {
   quote: Quote | null; quoteError: string; candles: Candle[]; candlesError: string; candlesLoading: boolean;
   emas: { period: number; color: string }[]; guides: Guide[]; theme: string;
   onGuideDrag: (key: string, p: number) => void; onGuideDrop: (key: string, p: number) => void;
-  markers: Marker[]; frameSeconds: number; onOverview: () => void;
+  markers: Marker[]; frameSeconds: number;
 };
 
 function tradingViewUrl(symbol: string, interval: string, theme: string) {
@@ -61,7 +61,6 @@ export default function ChartPanel(p: Props) {
           )}
         </div>
         <div className="chart-tools">
-          <button className="btn ov-btn" onClick={p.onOverview} title="Replay the strategy on recent history and see why it trades"><Lesson size={15} />AI Overview</button>
           <div className="seg" role="tablist" aria-label="Timeframe">
             {FRAMES.map((f) => <button key={f.api} role="tab" aria-selected={p.frame === f.api} className={p.frame === f.api ? "on" : ""} onClick={() => p.onFrame(f.api)}>{f.label}</button>)}
           </div>

@@ -3,6 +3,7 @@ import type { LogItem, Order, PaperState, Position } from "../lib/types";
 import { labelFor } from "../lib/constants";
 import { money, price, qty, signedMoney, time, tone } from "../lib/format";
 import Sparkline from "./Sparkline";
+import { Lesson } from "./Icons";
 
 export type BottomTab = "positions" | "orders" | "history" | "activity" | "assistant";
 type ChatMsg = { role: "user" | "assistant"; text: string };
@@ -11,6 +12,7 @@ type Props = {
   paper: PaperState | null; logs: LogItem[]; busy: boolean;
   onSelectSymbol: (api: string) => void; onClosePosition: (p: Position) => void; onCancelOrder: (o: Order) => void; onCloseAll: () => void;
   chat: ChatMsg[]; onSendChat: (text: string) => void; chatPending: boolean; aiConfigured: boolean; strategyName: string;
+  onOverview: () => void;
 };
 
 export default function BottomPanel(p: Props) {
@@ -33,6 +35,9 @@ export default function BottomPanel(p: Props) {
           ))}
         </div>
         {p.tab === "positions" && positions.length > 0 && <button className="link danger" onClick={p.onCloseAll} disabled={p.busy}>Close all</button>}
+        {p.tab === "assistant" && p.chat.length > 0 && (
+          <button className="btn small ov-btn bar-in" onClick={p.onOverview} title="Replay the strategy on recent history and see why it trades"><Lesson size={14} />AI Overview</button>
+        )}
       </div>
 
       <div className="bottom-body">
@@ -130,14 +135,23 @@ export default function BottomPanel(p: Props) {
   );
 }
 
-function Chat({ chat, onSendChat, chatPending, aiConfigured, strategyName }: Props) {
+function Chat({ chat, onSendChat, chatPending, aiConfigured, strategyName, onOverview }: Props) {
   const [text, setText] = useState("");
   const end = useRef<HTMLDivElement>(null);
-  useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [chat.length, chatPending]);
+  useEffect(() => { if (chat.length || chatPending) end.current?.scrollIntoView({ block: "end" }); }, [chat.length, chatPending]);
   return (
     <div className="chat">
       <div className="chat-log">
-        {chat.length === 0 && <p className="empty">Ask about your strategy, a market or your account. The assistant sees the chart, your strategy and your paper positions.</p>}
+        {chat.length === 0 && (
+          <div className="chat-intro">
+            <button className="ov-promo" onClick={onOverview}>
+              <span className="ov-promo-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5L8 5.5Z" fill="currentColor" /></svg></span>
+              <span className="ov-promo-text"><b>AI Overview</b><small>Watch {strategyName || "your strategy"} trade recent history and hear why it takes each trade.</small></span>
+              <span className="chev" aria-hidden="true">›</span>
+            </button>
+            <p>Or ask about your strategy, a market or your account. The assistant sees the chart, your strategy and your paper positions.</p>
+          </div>
+        )}
         {chat.map((m, i) => <div key={i} className={`bubble ${m.role}`}>{m.text}</div>)}
         {chatPending && <div className="bubble assistant typing"><i /><i /><i /></div>}
         <div ref={end} />

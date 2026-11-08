@@ -425,10 +425,11 @@ export default function App() {
           <ChartPanel instrument={instrument} frame={frame} onFrame={setFrame} quote={quote} quoteError={quoteError} theme={theme}
             candles={liveCandles} candlesError={candlesError} candlesLoading={candlesLoading} emas={emaPeriods} guides={guides}
             onGuideDrag={onGuideDrag} onGuideDrop={(k, p) => void onGuideDrop(k, p)}
-            markers={markers} frameSeconds={STEP[frame] ?? 3600} onOverview={() => setOverview(true)} />
+            markers={markers} frameSeconds={STEP[frame] ?? 3600} />
           <BottomPanel tab={bottomTab} onTab={setBottomTab} paper={paper} logs={logs} busy={busy} onSelectSymbol={setSymbol}
             onClosePosition={(p) => void closePosition(p)} onCancelOrder={(o) => void cancelOrder(o)} onCloseAll={() => void closeAll()}
-            chat={chat} onSendChat={(t) => void sendChat(t)} chatPending={chatPending} aiConfigured={!!health?.ai_configured} strategyName={strategy?.name ?? ""} />
+            chat={chat} onSendChat={(t) => void sendChat(t)} chatPending={chatPending} aiConfigured={!!health?.ai_configured} strategyName={strategy?.name ?? ""}
+            onOverview={() => setOverview(true)} />
         </main>
 
         <aside className="inspector">
@@ -450,8 +451,7 @@ export default function App() {
                 onGenerate={() => void generateSetup()} setupMismatch={!!aiSetup && (aiSetup.symbol !== symbol || aiSetup.timeframe !== frame)}
                 strategies={strategies} strategy={strategy} strategyId={strategyId} onStrategy={(id) => { setStrategyId(id); setBacktest(null); }}
                 params={params} onParam={(k, v) => setParams((p) => ({ ...p, [k]: v }))} paramsDirty={!sameJSON(params, savedParams)} onSaveParams={() => void saveParams()} paramStatus={paramStatus}
-                onDuplicate={(n) => void duplicate(n)} backtest={backtest} onBacktest={() => void runBacktest()} busy={busy} message={modeMessage}
-                onOverview={() => setOverview(true)} />
+                onDuplicate={(n) => void duplicate(n)} backtest={backtest} onBacktest={() => void runBacktest()} busy={busy} message={modeMessage} />
             )}
             {inspector === "risk" && (
               <RiskPanel risk={risk} onChange={setRisk} dirty={!sameJSON(risk, savedRisk)} onSave={() => void saveRisk()}
