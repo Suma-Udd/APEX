@@ -149,6 +149,9 @@ def fill_order(state, symbol, side, qty, price, maker=False, sl=None, tp=None, r
     signed = qty if side == "buy" else -qty
     pos = _position(state, symbol)
     realized = 0.0
+    # Context for notifications and history: what this fill did to the position.
+    info = {"entry_price": float(pos["avg_price"]) if pos else None, "opened_at": pos.get("opened_at") if pos else None,
+            "position_before": float(pos["quantity"]) if pos else 0.0, "equity_before": float(state.get("equity") or state.get("balance") or 0)}
 
     if pos and float(pos["quantity"]) * signed < 0:
         current = float(pos["quantity"])
@@ -185,6 +188,17 @@ def fill_order(state, symbol, side, qty, price, maker=False, sl=None, tp=None, r
     state["fees_paid"] = round(float(state.get("fees_paid", 0)) + fee, 2)
     trade = {"id": str(uuid4()), "symbol": symbol, "side": side, "quantity": qty, "price": round(price, 10),
              "fee": round(fee, 4), "realized_pnl": round(realized, 2), "reason": reason, "timestamp": now()}
+    after = float(pos["quantity"]) if pos else 0.0
+    before = info["position_before"]
+    if abs(before) < EPS:
+        action = "open"
+    elif abs(after) < EPS:
+        action = "close"
+    elif before * after < 0:
+        action = "reverse"
+    else:
+        action = "add" if abs(after) > abs(before) else "reduce"
+    trade.update(info, action=action, position_after=after)
     state["trades"].append(trade)
     state["trades"] = state["trades"][-2000:]
     mark_state(state)
@@ -353,6 +367,31 @@ def update_quotes(state, quotes, bars_by_symbol=None, risk=None):
     mark_state(state)
     _margin_close_out(state)
     return state
+
+
+def catch_up(state, bars_by_symbol, risk=None):
+    """Replay candles the engine missed while the app was closed.
+
+    Stop losses, take profits and working orders behave like they would at a real broker,
+    which keeps watching while your computer is off. Returns the trades this produced.
+    """
+    risk = risk or {}
+    before = {t["id"] for t in state["trades"]}
+    checked = state.setdefault("checked", {})
+    for symbol, bars in bars_by_symbol.items():
+        last = float(checked.get(symbol, 0))
+        bars = sorted((b for b in bars if b["t"] + b.get("span", 60) > last), key=lambda b: b["t"])
+        for bar in bars:
+            opened_before = {p["id"] for p in state["positions"] if p["symbol"] == symbol}
+            _process_bar(state, symbol, bar, risk, opened_before)
+        if bars:
+            checked[symbol] = max(last, bars[-1]["t"] + bars[-1].get("span", 60))
+    new = [t for t in state["trades"] if t["id"] not in before]
+    for t in new:
+        t["catch_up"] = True
+        t["reason"] = f"{t['reason']} while APEX was closed"
+    mark_state(state)
+    return new
 
 
 def _margin_close_out(state):

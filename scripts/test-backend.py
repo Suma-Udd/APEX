@@ -2,7 +2,7 @@
 
 Run from the project root:  python scripts/test-backend.py backend
 """
-import os, sys, tempfile, time, random, math
+import os, sys, tempfile, time, random, math, json
 from datetime import datetime, timezone
 os.environ["APEX_DATA"] = tempfile.mkdtemp(); os.environ["APEX_TOKEN"] = "t"
 sys.path.insert(0, sys.argv[1])
@@ -173,6 +173,98 @@ check("AI setup asks for a key when none set", P("/api/ai/strategy-setup", {"sym
 check("quote endpoint", G("/api/market/quote?symbol=BTCUSDT").status_code == 200)
 r = G("/api/market/candles?symbol=BTCUSDT&timeframe=4h"); check("candles endpoint", r.status_code == 200 and len(r.json()["candles"]) > 50)
 check("logs", G("/api/logs").status_code == 200)
+
+# ── Notifications (network mocked) ──────────────────────────────────────
+import modules.notify as notify
+SENT = []
+def fake_post(url, payload, settings, timeout=10, attempts=3):
+    SENT.append((url, payload))
+    if "/getMe" in url: return {"ok": True, "result": {"username": "my_test_bot"}}
+    if "/getUpdates" in url: return {"ok": True, "result": [{"message": {"chat": {"id": 4242, "type": "private", "first_name": "Sumayer"}}},
+                                                          {"my_chat_member": {"chat": {"id": -100777, "type": "group", "title": "The boys"}}}]}
+    return {"ok": True, "result": {}}
+notify._post = fake_post; notify.BATCH_WINDOW = 0.3
+main.notifier.start()
+def wait_sent(n, timeout=8):
+    """Wait for at least n sends, then until the sender has been quiet for a moment."""
+    end = time.time() + timeout
+    while time.time() < end and len(SENT) < n: time.sleep(0.05)
+    while time.time() < end:
+        k = len(SENT); time.sleep(notify.BATCH_WINDOW + 1.3)
+        if len(SENT) == k and main.notifier._q.empty(): break
+    return SENT
+def settle(): wait_sent(0); SENT.clear()
+FAKE_TOKEN = "123456789:AAH" + "x" * 32
+check("bad bot token refused", P("/api/notify/settings", {"telegram": {"token": "nope"}}).status_code == 400)
+check("non-discord webhook refused", P("/api/notify/settings", {"discord": {"webhook": "https://evil.example/api/webhooks/1/abc"}}).status_code == 400)
+r = P("/api/notify/settings", {"telegram": {"token": FAKE_TOKEN}}).json()
+check("token saved but never returned", r["telegram"]["token_set"] and FAKE_TOKEN not in json.dumps(r) and FAKE_TOKEN not in G("/api/notify/settings").text)
+check("can't enable telegram without a chat", P("/api/notify/settings", {"telegram": {"enabled": True}}).json()["telegram"]["enabled"] is False)
+d = P("/api/notify/telegram/detect").json()
+check("detect finds bot and chats", d["bot_username"] == "my_test_bot" and {c_["id"] for c_ in d["chats"]} == {"4242", "-100777"}, d)
+r = P("/api/notify/settings", {"telegram": {"chat_id": "4242", "chat_title": "Sumayer", "enabled": True}}).json()
+check("telegram enabled", r["telegram"]["enabled"] and r["telegram"]["chat_id"] == "4242")
+check("notify file is private", os.name == "nt" or (os.stat(main.DATA / "config" / "notify.json").st_mode & 0o077) == 0)
+check("redacts tokens from errors", FAKE_TOKEN not in notify.redact(f"HTTPError for https://api.telegram.org/bot{FAKE_TOKEN}/sendMessage"))
+SENT.clear(); check("test message", P("/api/notify/test", {"channel": "telegram"}).status_code == 200 and "sendMessage" in wait_sent(1)[0][0])
+
+P("/api/risk", {"risk_pct": 1, "max_drawdown_pct": 25, "max_open_positions": 5, "daily_loss_limit_pct": 10})
+P("/api/paper/reset"); P("/api/paper/start"); PX["BTCUSDT"] = 50000; SENT.clear()
+P("/api/paper/order", {"symbol": "BTCUSDT", "side": "buy", "quantity": 0.1})
+time.sleep(0.8); check("opens not sent by default", not SENT, SENT)
+PX["BTCUSDT"] = 50500; r = P("/api/paper/positions/BTCUSDT/close")
+msgs = wait_sent(1); txt = msgs[0][1]["text"] if msgs else ""
+check("close sends one telegram message", len(msgs) == 1 and msgs[0][1]["chat_id"] == "4242", len(msgs))
+check("close message has P&L and footer", "BTC/USDT closed" in txt and "+$" in txt and "paper trading" in txt, txt)
+SENT.clear(); PX["BTCUSDT"] = 50000
+P("/api/paper/order", {"symbol": "BTCUSDT", "side": "buy", "quantity": 1}); PX["BTCUSDT"] = 53000
+P("/api/paper/positions/BTCUSDT/close"); msgs = wait_sent(1)
+check("big win gets the loud format", msgs and "BIG WIN" in msgs[0][1]["text"], msgs and msgs[0][1]["text"])
+P("/api/notify/settings", {"telegram": {"big_wins_only": True}, "amounts": "pct"}); SENT.clear(); PX["BTCUSDT"] = 50000
+P("/api/paper/order", {"symbol": "BTCUSDT", "side": "buy", "quantity": 0.01}); PX["BTCUSDT"] = 50100; P("/api/paper/positions/BTCUSDT/close")
+wait_sent(0); check("big-wins-only chat skips small closes", not SENT, SENT)
+P("/api/notify/settings", {"telegram": {"big_wins_only": False}})
+settle(); notify.BATCH_WINDOW = 2.0; PX["BTCUSDT"] = 50000; PX["ETHUSDT"] = 3000
+for sym in ("BTCUSDT", "ETHUSDT"):
+    P("/api/paper/order", {"symbol": sym, "side": "buy", "quantity": 0.01}); P("/api/paper/order", {"symbol": sym, "side": "buy", "quantity": 0.01})
+P("/api/paper/order", {"symbol": "BTCUSDT", "side": "sell", "quantity": 0.005}); P("/api/paper/order", {"symbol": "ETHUSDT", "side": "sell", "quantity": 0.005})
+P("/api/paper/order", {"symbol": "BTCUSDT", "side": "sell", "quantity": 0.005}); P("/api/paper/order", {"symbol": "ETHUSDT", "side": "sell", "quantity": 0.005})
+msgs = wait_sent(1); notify.BATCH_WINDOW = 0.3
+check("burst of closes becomes one digest", len(SENT) == 1 and "4 trades" in SENT[0][1]["text"], [m[1]["text"][:40] for m in SENT])
+check("pct-only mode hides dollars", SENT and "$" not in SENT[0][1]["text"], SENT and SENT[0][1]["text"])
+P("/api/notify/settings", {"amounts": "both", "discord": {"webhook": "https://discord.com/api/webhooks/123456789/" + "y" * 40, "enabled": True}})
+PX["BTCUSDT"] = 50000; P("/api/paper/close-all"); settle()
+P("/api/paper/start"); P("/api/paper/order", {"symbol": "BTCUSDT", "side": "buy", "quantity": 0.1}); PX["BTCUSDT"] = 49000; P("/api/paper/positions/BTCUSDT/close")
+msgs = wait_sent(2); emb = [m for m in msgs if "discord.com" in m[0]]
+check("discord gets an embed too", emb and emb[0][1]["embeds"][0]["color"] == 0xEF5350 and emb[0][1]["allowed_mentions"] == {"parse": []}, [m[0][:30] for m in msgs])
+check("preview endpoint", "BIG WIN" in G("/api/notify/preview").json()["big_win"])
+P("/api/notify/settings", {"telegram": {"enabled": False}, "discord": {"clear_webhook": True}})
+
+# ── Catch-up: stops fire for what happened while the app was closed ─────
+HIST = {}
+md.history_bars = lambda s, since: [b for b in HIST.get(s.upper(), []) if b["t"] + b.get("span", 60) > since]
+P("/api/paper/reset"); P("/api/paper/start"); PX["BTCUSDT"] = 50000
+P("/api/paper/order", {"symbol": "BTCUSDT", "side": "buy", "quantity": 0.5, "stop_loss": 48000, "take_profit": 60000})
+P("/api/paper/order", {"symbol": "ETHUSDT", "side": "buy", "type": "limit", "quantity": 1, "limit_price": 2800})
+with main.LOCK:
+    st_ = main.get_paper_state(); t0 = time.time() - 3 * 86400
+    st_["checked"] = {"BTCUSDT": t0, "ETHUSDT": t0}; main.save_paper_state(st_)
+HIST["BTCUSDT"] = [{"t": t0 + 3600, "o": 50000, "h": 50500, "l": 49500, "c": 50100, "span": 3600},
+                   {"t": t0 + 7200, "o": 50100, "h": 50200, "l": 47500, "c": 47900, "span": 3600}]
+HIST["ETHUSDT"] = [{"t": t0 + 3600, "o": 3000, "h": 3010, "l": 2790, "c": 2850, "span": 3600}]
+PX["BTCUSDT"] = 47000; PX["ETHUSDT"] = 2900
+importlib = __import__("importlib"); importlib.reload(main); main.notifier.start()
+with TestClient(main.app) as c3:
+    pending = main.get_paper_state().get("pending_catch_up")
+    main.run_catch_up()
+    s3 = c3.get("/api/paper/state", headers=H).json()
+check("app closed while running -> catch-up pending", pending is True)
+syms = {p_["symbol"]: p_ for p_ in s3["positions"]}
+check("missed stop loss filled on reopen", "BTCUSDT" not in syms and any(t["reason"] == "stop loss while APEX was closed" for t in s3["trades"]), [t["reason"] for t in s3["trades"]][-3:])
+check("stop filled at the stop, not today's price", any(t["reason"].startswith("stop loss") and abs(t["price"] - 48000) < 50 for t in s3["trades"]))
+check("missed limit order filled on reopen", "ETHUSDT" in syms and any(o["status"] == "filled" for o in s3["orders"] if o["symbol"] == "ETHUSDT"))
+check("catch-up report for the UI", s3.get("catch_up_report", {}).get("count") == 2 and not s3.get("pending_catch_up") and s3["active"] is False, s3.get("catch_up_report"))
+main.run_catch_up(); check("catch-up runs once", len(main.get_paper_state()["trades"]) == len(s3["trades"]))
 
 # persistence: new app instance on same data dir
 st_before = state()

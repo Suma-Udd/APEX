@@ -161,3 +161,39 @@ def minute_bars(symbol: str, since_ts: float):
             bars.append({"t": int(stamp), "o": float(vals[0]), "h": float(vals[1]), "l": float(vals[2]), "c": float(vals[3]), "v": 0.0})
     _MINUTE_CACHE[symbol] = (time.time(), start, bars)
     return [b for b in bars if b["t"] + 60 > since_ts]
+
+
+CATCH_UP_MAX_DAYS = 30
+
+
+def history_bars(symbol: str, since_ts: float):
+    """Candles from `since_ts` until now, for replaying what the engine missed while the app was closed.
+
+    The last 6 hours come as 1m candles; anything older as 1h candles (each bar carries its
+    length in `span`). Gaps longer than CATCH_UP_MAX_DAYS are cut to that window.
+    """
+    symbol = symbol.strip().upper()
+    now_ts = time.time()
+    since_ts = max(float(since_ts), now_ts - CATCH_UP_MAX_DAYS * 86400)
+    recent_from = now_ts - 6 * 3600
+    out = []
+    if since_ts < recent_from - 3600:
+        start, end = int(since_ts // 3600 * 3600), int(recent_from)
+        if market_for(symbol) == "Crypto":
+            rows = _get(f"{BINANCE}/klines?symbol={urllib.parse.quote(symbol)}&interval=1h&startTime={start * 1000}&endTime={end * 1000}&limit=1000")
+            hourly = [{"t": int(x[0] / 1000), "o": float(x[1]), "h": float(x[2]), "l": float(x[3]), "c": float(x[4]), "v": float(x[5])} for x in rows]
+        else:
+            data = _get(f"{YAHOO}{urllib.parse.quote(symbol, safe='')}?period1={start}&period2={end}&interval=60m")
+            result = data["chart"]["result"][0]
+            q = result["indicators"]["quote"][0]
+            hourly = []
+            for i, stamp in enumerate(result.get("timestamp") or []):
+                vals = [q.get(k, [None] * (i + 1))[i] for k in ("open", "high", "low", "close")]
+                if any(v is None for v in vals):
+                    continue
+                hourly.append({"t": int(stamp), "o": float(vals[0]), "h": float(vals[1]), "l": float(vals[2]), "c": float(vals[3]), "v": 0.0})
+        out += [dict(b, span=3600) for b in hourly if b["t"] + 3600 > since_ts and b["t"] < recent_from]
+        since_ts = max(since_ts, recent_from)
+    out += [dict(b, span=60) for b in minute_bars(symbol, since_ts)]
+    out.sort(key=lambda b: b["t"])
+    return out

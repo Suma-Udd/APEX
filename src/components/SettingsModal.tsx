@@ -3,6 +3,7 @@ import type { AISettings } from "../lib/types";
 import type { UpdaterState } from "../lib/updater";
 import type { ThemePref } from "../lib/theme";
 import { Close } from "./Icons";
+import NotificationsSection from "./NotificationsSection";
 
 type Props = {
   initial: AISettings; busy: boolean; message: string;
@@ -51,6 +52,8 @@ export default function SettingsModal({ initial, busy, message, onSave, onClose,
           <button className="btn primary" onClick={() => onSave({ base_url: baseUrl, model, api_key: key }, true)} disabled={busy || (!key.trim() && !initial.api_key_set)}>Save and test</button>
         </div>
         {message && <p className="note">{message}</p>}
+
+        <NotificationsSection />
 
         <h3>About</h3>
         <div className="about">

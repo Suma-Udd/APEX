@@ -25,6 +25,8 @@ from modules.paper_engine import empty_state, mark_state, migrate, close_all, cl
 from modules import market_data, instruments, signals
 from modules import backtest as backtest_engine
 from modules import lesson as lesson_engine
+from modules import notify
+from modules.paper_engine import catch_up as engine_catch_up
 
 TOKEN = os.environ.get("APEX_TOKEN", "dev")
 
@@ -90,8 +92,13 @@ def auth(x_apex_token: str = Header(default="")):
 async def lifespan(_app):
     # Safety: a running paper engine never resumes automatically after an app restart.
     state = migrate(state_get("paper", empty_state()))
+    if state.get("active") and state.get("checked"):
+        # The app was closed with the engine running. Stops, targets and working orders
+        # should still have worked in the meantime, so replay what was missed.
+        state["pending_catch_up"] = True
     state["active"] = False
     state_put("paper", state)
+    notifier.start()
     stop = threading.Event()
     worker = threading.Thread(target=background_loop, args=(stop,), name="apex-engine", daemon=True)
     worker.start()
@@ -137,7 +144,52 @@ def get_paper_state():
 
 def save_paper_state(state):
     state_put("paper", state)
+    try:
+        notifier.observe(state)
+    except Exception as exc:  # notifications must never break trading
+        log(f"Notification check failed: {notify.redact(exc)[:200]}")
     return state
+
+
+NOTIFY_STORE = notify.Store(DATA / "config" / "notify.json")
+notifier = notify.Notifier(NOTIFY_STORE, lambda: state_get("notify_cursor", None), lambda v: state_put("notify_cursor", v), log)
+
+
+def run_catch_up():
+    """Fill stop losses, take profits and working orders that were crossed while the app was closed."""
+    state = get_paper_state()
+    if not state.get("pending_catch_up"):
+        return []
+    checked = state.get("checked") or {}
+    symbols = [s for s in open_symbols(state) if s in checked]
+    bars = {}
+    for symbol in symbols:
+        bars[symbol] = market_data.history_bars(symbol, float(checked[symbol]))  # raises when offline; retried later
+    quotes = []
+    for symbol in symbols:
+        try:
+            quotes.append(market_data.quote(symbol))
+        except Exception:
+            pass
+    with LOCK:
+        state = get_paper_state()
+        if not state.get("pending_catch_up"):
+            return []
+        since = min((float(checked[s]) for s in symbols), default=time.time())
+        new = engine_catch_up(state, bars, current_risk())
+        if quotes:
+            update_quotes(state, quotes, {}, current_risk())
+        state.pop("pending_catch_up", None)
+        if new:
+            state["catch_up_report"] = {"id": new[-1]["id"], "count": len(new), "since": since, "at": time.time(),
+                                        "net": round(sum(float(t.get("realized_pnl") or 0) for t in new), 2)}
+        record_equity(state)
+        save_paper_state(state)
+    for t in new:
+        log(f"Catch-up {t['reason']}: {t['side'].upper()} {t['quantity']:g} {t['symbol']} @ {t['price']:g} (P&L {t['realized_pnl']:+,.2f})")
+    if symbols:
+        log(f"Caught up on {len(symbols)} symbol(s) since {time.strftime('%Y-%m-%d %H:%M', time.localtime(since))}: {len(new)} fill(s)")
+    return new
 
 
 class AISettingsIn(BaseModel):
@@ -223,6 +275,74 @@ def test_ai_connection():
     result = provider_request("/models")
     models = result.get("data", []) if isinstance(result, dict) else []
     return {"ok": True, "models": [str(x.get("id")) for x in models[:30] if isinstance(x, dict) and x.get("id")]}
+
+
+# ── Notifications (Telegram / Discord) ───────────────────────────────────
+
+def _notify_view():
+    view = notify.public_view(NOTIFY_STORE.read())
+    view["status"] = notifier.status()
+    return view
+
+
+@app.get("/api/notify/settings")
+def notify_settings():
+    return _notify_view()
+
+
+@app.post("/api/notify/settings")
+def notify_save(body: dict):
+    try:
+        updated = notify.apply_update(NOTIFY_STORE.read(), body)
+    except (notify.NotifyError, ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    NOTIFY_STORE.write(updated)
+    log("Notification settings updated")
+    return _notify_view()
+
+
+@app.post("/api/notify/telegram/detect")
+def notify_detect():
+    settings = NOTIFY_STORE.read()
+    try:
+        found = notify.detect_chats(settings)
+    except notify.NotifyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if found["bot_username"] != settings["telegram"]["bot_username"]:
+        settings["telegram"]["bot_username"] = found["bot_username"]
+        NOTIFY_STORE.write(settings)
+    return found
+
+
+class NotifyTestIn(BaseModel):
+    channel: str = Field(pattern="^(telegram|discord)$")
+
+
+@app.post("/api/notify/test")
+def notify_test(body: NotifyTestIn):
+    settings = NOTIFY_STORE.read()
+    if body.channel == "telegram" and not (settings["telegram"]["token"] and settings["telegram"]["chat_id"]):
+        raise HTTPException(status_code=400, detail="Connect your bot and pick a chat first")
+    if body.channel == "discord" and not settings["discord"]["webhook"]:
+        raise HTTPException(status_code=400, detail="Paste a Discord webhook URL first")
+    msg = notify.render("close", notify.SAMPLE, settings, equity=104912.75)
+    msg["title"] = "🔔 APEX test · " + msg["title"]
+    msg["text_html"] = "<b>🔔 APEX test</b>\n" + msg["text_html"]
+    if not notifier.send(msg, settings, body.channel):
+        raise HTTPException(status_code=502, detail=notifier.status()[body.channel]["error"] or "Sending failed")
+    return {"sent": True}
+
+
+@app.get("/api/notify/preview")
+def notify_preview():
+    settings = NOTIFY_STORE.read()
+    big = dict(notify.SAMPLE, realized_pnl=4820.0, price=952.57, entry_price=912.40, quantity=120, position_before=120, symbol="NVDA",
+               opened_at="2026-11-08T09:00:00+00:00", timestamp="2026-11-08T12:02:00+00:00", equity_before=100000.0)
+    plain = lambda m: "\n".join([m["title"], *m["lines"], *([m["footer"]] if m["footer"] else [])])
+    return {
+        "close": plain(notify.render("close", notify.SAMPLE, settings, equity=104912.75)),
+        "big_win": plain(notify.render("big_win", big, settings, day={"trades": 6, "pnl": 5310.0, "win_rate": 83.0})),
+    }
 
 
 @app.get("/api/strategies")
@@ -562,6 +682,7 @@ def strategy_step():
 
     with LOCK:
         state = get_paper_state()
+        trades_before = {t["id"] for t in state["trades"]}
         pos = next((p for p in state["positions"] if p["symbol"] == symbol), None)
         qty_now = float(pos["quantity"]) if pos else 0.0
         if strat.sizing == "notional":
@@ -611,6 +732,9 @@ def strategy_step():
                 note = sig.reason
             except ValueError as exc:
                 note = f"Signal skipped: {exc}"
+        for t in state["trades"]:
+            if t["id"] not in trades_before:
+                t["auto"] = True
         record_equity(state)
         save_paper_state(state)
     if sig is not None:
@@ -634,9 +758,14 @@ _last_error = {"t": 0.0}
 
 def background_loop(stop_event):
     """Runs while the app is open: keeps positions marked, fills orders, and runs Auto mode."""
-    while not stop_event.wait(15):
+    first = True
+    while not stop_event.wait(2 if first else 15):
+        first = False
         try:
             state = get_paper_state()
+            if state.get("pending_catch_up"):
+                run_catch_up()
+                state = get_paper_state()
             if not state.get("active"):
                 continue
             symbols = open_symbols(state)
@@ -660,6 +789,10 @@ def paper_state():
 
 @app.post("/api/paper/start")
 def paper_start():
+    try:
+        run_catch_up()
+    except Exception as exc:
+        log(f"Catch-up skipped: {str(exc)[:160]}")
     with LOCK:
         state = get_paper_state()
         state["active"] = True

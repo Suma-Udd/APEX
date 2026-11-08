@@ -209,6 +209,19 @@ export default function App() {
     }
   }, [paper, toast]);
 
+  // Stops/targets/orders that filled while the app was closed get one summary on open.
+  const reportId = paper?.catch_up_report?.id;
+  useEffect(() => {
+    const rep = paper?.catch_up_report;
+    if (!rep) return;
+    let seen = "";
+    try { seen = localStorage.getItem("apex.catchUpSeen") || ""; } catch { /* storage off */ }
+    if (seen === rep.id) return;
+    try { localStorage.setItem("apex.catchUpSeen", rep.id); } catch { /* storage off */ }
+    toast(`While APEX was closed: ${rep.count} order${rep.count === 1 ? "" : "s"} filled · ${signedMoney(rep.net)}`, rep.net < 0 ? "bad" : "good");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportId, toast]);
+
   // Reset drag preview once the real position levels come back.
   useEffect(() => { setDragLevels({}); }, [position?.stop_loss, position?.take_profit, symbol]);
 
