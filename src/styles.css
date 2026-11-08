@@ -411,6 +411,21 @@ select option { background: var(--raised); color: var(--text); }
 .sheet h3 { margin: 10px 0 0; font-size: 12px; font-weight: 600; color: var(--text-3); }
 .sheet .form-row input { background: transparent; }
 .about { display: flex; align-items: center; justify-content: space-between; }
+.notify-card { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 10px; background: var(--fill); }
+.notify-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
+.notify-dot { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-3); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notify-dot::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); flex: none; }
+.notify-dot.good { color: var(--text-2); }
+.notify-dot.good::before { background: var(--up); }
+.notify-dot.bad { color: var(--down); }
+.notify-dot.bad::before { background: var(--down); }
+.notify-steps { margin: 0; padding-left: 18px; font-size: 12px; line-height: 1.6; color: var(--text-2); }
+.notify-steps code { font-size: 11px; padding: 1px 4px; border-radius: 4px; background: var(--fill-2); }
+.notify-chats { display: flex; flex-wrap: wrap; gap: 6px; }
+.notify-chats .hint { width: 100%; }
+.notify-switch { justify-content: space-between; margin-left: 0; min-height: 26px; }
+.notify-switch > span:first-child { flex: 1; }
+.notify-preview { margin: 4px 0 0; padding: 10px 12px; border-radius: 8px; background: var(--raised); font: 12px/1.5 inherit; font-family: inherit; white-space: pre-wrap; color: var(--text); box-shadow: 0 0 0 0.5px var(--hairline); }
 
 /* ── Update card, toasts ────────────────────────────────────────────── */
 .update-card {

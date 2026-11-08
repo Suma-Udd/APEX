@@ -28,6 +28,7 @@ export type PaperState = {
   active: boolean; balance: number; equity: number; realized_pnl: number; floating_pnl: number; fees_paid?: number;
   positions: Position[]; orders: Order[]; trades: Trade[]; feed: string; mode: string;
   peak_equity?: number; day_start_equity?: number; risk_halt?: string | null;
+  catch_up_report?: { id: string; count: number; net: number; since: number; at: number };
   used_margin?: number; free_margin?: number; margin_level?: number | null; equity_history?: [number, number][];
 };
 export type Session = {

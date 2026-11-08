@@ -1,6 +1,6 @@
 # Plan: trade notifications (Telegram first, Discord second)
 
-Status: plan only, nothing built yet. Written 2026-11-07.
+Status: v1 built 2026-11-08 (Telegram own-bot + Discord webhook, catch-up on reopen). Not built yet: share card image, daily summary, shared bot. Written 2026-11-07.
 
 ## Goal
 

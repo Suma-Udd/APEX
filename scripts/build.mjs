@@ -62,6 +62,7 @@ function buildBackend() {
   run(venvPy, ["-m", "PyInstaller", "--clean", "--noconfirm", "--onefile", ...(isWin ? ["--noconsole"] : []), "--name", "apex-backend",
     "--hidden-import", "modules.strategy_library", "--hidden-import", "modules.paper_engine", "--hidden-import", "modules.market_data",
     "--hidden-import", "modules.instruments", "--hidden-import", "modules.signals", "--hidden-import", "modules.backtest",
+    "--hidden-import", "modules.lesson", "--hidden-import", "modules.notify",
     // Windows has no system timezone database; bundle it so market hours work everywhere.
     "--collect-data", "tzdata", "--hidden-import", "tzdata", "--collect-data", "certifi",
     // Not used; keeps the binary smaller so it unpacks faster on every launch.
