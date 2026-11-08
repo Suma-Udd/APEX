@@ -10,7 +10,10 @@ Link a Telegram chat (and optionally a Discord channel) to APEX so trades show u
 
 Yes, and it's not much work. Everything already flows through one function (`fill_order` in `backend/modules/paper_engine.py`), every fill is appended to `state["trades"]` with symbol, side, price, fee, realized P&L and a reason ("stop loss", "take profit", "manual close", "margin close-out ..."). The Python backend can already make HTTPS calls (it does for Binance/Yahoo/AI with a certifi SSL context that works on Mac and Windows). So sending a Telegram or Discord message is one more outbound HTTPS call from the backend. No Rust changes, no CSP changes, no new Python packages.
 
-The one hard limit: **notifications only fire while APEX is open.** The paper engine itself only runs while the app is open (`background_loop` lives in the backend sidecar), so there's nothing to notify about when it's closed. A cloud server wouldn't change that. When the app reopens and catches up on candles, any stop/target fills that land then get sent as one digest message instead of a flood.
+The one hard limit: **notifications only fire while APEX is open.** Prices are real, but the paper engine that checks your stop loss, take profit and limit orders against those prices only runs while the app is open (`background_loop` lives in the backend sidecar). Today it also does **not** catch up on what it missed: the engine starts paused after a restart and `/api/paper/start` clears `checked`, so a stop that got hit while the app was closed never fills. Open positions just get marked to the current real price. Two ways to improve that, separate from notifications:
+
+- **Catch-up on reopen** (cheap): on start, replay the 1m candles since the last check (Binance gives ~16h of 1m bars per request, Yahoo up to 7 days) and fill any SL/TP/limit that was crossed. Those fills then go out as one digest message.
+- **Always-on engine** (big): run the paper engine on a server so trades fill 24/7 with the PC off. Needs hosting, accounts and sync. Not worth it for now.
 
 ## Approach options
 
