@@ -17,6 +17,7 @@ import OrderTicket, { TicketState } from "./components/OrderTicket";
 import StrategyPanel from "./components/StrategyPanel";
 import RiskPanel from "./components/RiskPanel";
 import SettingsModal from "./components/SettingsModal";
+import ConfirmDialog, { type ConfirmRequest } from "./components/ConfirmDialog";
 import Startup from "./components/Startup";
 import Toasts, { Toast } from "./components/Toasts";
 import UpdateCard from "./components/UpdateCard";
@@ -46,6 +47,9 @@ export default function App() {
   // ── Live data (polled) ────────────────────────────────────────────────
   const [health, setHealth] = useState<Health | null>(null);
   const [paper, setPaper] = useState<PaperState | null>(null);
+  const [confirmReq, setConfirmReq] = useState<ConfirmRequest | null>(null);
+  const askConfirm = (r: Omit<ConfirmRequest, "resolve">) =>
+    new Promise<boolean>((resolve) => setConfirmReq({ ...r, resolve: (ok) => { setConfirmReq(null); resolve(ok); } }));
   const [logs, setLogs] = useState<LogItem[]>([]);
   const [watch, setWatch] = useState<Record<string, MiniQuote>>({});
   const [offline, setOffline] = useState(false);
@@ -279,7 +283,7 @@ export default function App() {
   };
 
   const resetAccount = async () => {
-    if (!window.confirm("Reset the paper account? All positions, orders and history get wiped and you start again with $100,000.")) return;
+    if (!(await askConfirm({ title: "Reset paper account?", body: "All positions, orders and history get wiped and you start again with $100,000.", confirmLabel: "Reset account", destructive: true }))) return;
     const r = await run(() => api<PaperState>("/api/paper/reset", { method: "POST" }));
     if (r) { setPaper(r); toast("Account reset to $100,000", "good"); }
   };
@@ -316,7 +320,7 @@ export default function App() {
   };
 
   const closeAll = async () => {
-    if (!window.confirm("Close every paper position and cancel all working orders? The engine will pause too.")) return;
+    if (!(await askConfirm({ title: "Close everything?", body: "Every paper position gets closed and all working orders cancelled. The engine pauses too.", confirmLabel: "Close all", destructive: true }))) return;
     const r = await run(() => api<PaperState>("/api/paper/close-all", { method: "POST" }));
     if (r) { setPaper(r); toast((r as PaperState & { skipped?: string[] }).skipped?.length ? `Closed. Market shut for ${(r as PaperState & { skipped?: string[] }).skipped!.map(labelFor).join(", ")}` : "All positions closed"); }
   };
@@ -421,10 +425,11 @@ export default function App() {
           <ChartPanel instrument={instrument} frame={frame} onFrame={setFrame} quote={quote} quoteError={quoteError} theme={theme}
             candles={liveCandles} candlesError={candlesError} candlesLoading={candlesLoading} emas={emaPeriods} guides={guides}
             onGuideDrag={onGuideDrag} onGuideDrop={(k, p) => void onGuideDrop(k, p)}
-            markers={markers} frameSeconds={STEP[frame] ?? 3600} onOverview={() => setOverview(true)} />
+            markers={markers} frameSeconds={STEP[frame] ?? 3600} />
           <BottomPanel tab={bottomTab} onTab={setBottomTab} paper={paper} logs={logs} busy={busy} onSelectSymbol={setSymbol}
             onClosePosition={(p) => void closePosition(p)} onCancelOrder={(o) => void cancelOrder(o)} onCloseAll={() => void closeAll()}
-            chat={chat} onSendChat={(t) => void sendChat(t)} chatPending={chatPending} aiConfigured={!!health?.ai_configured} strategyName={strategy?.name ?? ""} />
+            chat={chat} onSendChat={(t) => void sendChat(t)} chatPending={chatPending} aiConfigured={!!health?.ai_configured} strategyName={strategy?.name ?? ""}
+            onOverview={() => setOverview(true)} />
         </main>
 
         <aside className="inspector">
@@ -446,8 +451,7 @@ export default function App() {
                 onGenerate={() => void generateSetup()} setupMismatch={!!aiSetup && (aiSetup.symbol !== symbol || aiSetup.timeframe !== frame)}
                 strategies={strategies} strategy={strategy} strategyId={strategyId} onStrategy={(id) => { setStrategyId(id); setBacktest(null); }}
                 params={params} onParam={(k, v) => setParams((p) => ({ ...p, [k]: v }))} paramsDirty={!sameJSON(params, savedParams)} onSaveParams={() => void saveParams()} paramStatus={paramStatus}
-                onDuplicate={(n) => void duplicate(n)} backtest={backtest} onBacktest={() => void runBacktest()} busy={busy} message={modeMessage}
-                onOverview={() => setOverview(true)} />
+                onDuplicate={(n) => void duplicate(n)} backtest={backtest} onBacktest={() => void runBacktest()} busy={busy} message={modeMessage} />
             )}
             {inspector === "risk" && (
               <RiskPanel risk={risk} onChange={setRisk} dirty={!sameJSON(risk, savedRisk)} onSave={() => void saveRisk()}
@@ -462,6 +466,7 @@ export default function App() {
         version={updater.version} update={updater.state} onCheckUpdate={() => void updater.check()} onInstallUpdate={() => { setSettingsOpen(false); void updater.install(); }} />}
       {updater.showCard && <UpdateCard state={updater.state} onInstall={() => void updater.install()} onLater={updater.dismiss} />}
       {overview && <Overview symbol={symbol} timeframe={frame} strategyId={strategyId} aiConfigured={!!health?.ai_configured} theme={theme} onClose={() => setOverview(false)} />}
+      {confirmReq && <ConfirmDialog req={confirmReq} />}
       <Toasts items={toasts} />
     </div>
   );

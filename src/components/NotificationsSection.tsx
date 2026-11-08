@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
+import TelegramGuide from "./TelegramGuide";
 
 type Status = { ok: boolean | null; error: string; at: number | null };
 type Settings = {
@@ -37,6 +38,7 @@ export default function NotificationsSection() {
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState("");
   const [usd, setUsd] = useState("");
+  const [guide, setGuide] = useState(false);
   const [pct, setPct] = useState("");
 
   const load = async () => {
@@ -112,6 +114,7 @@ export default function NotificationsSection() {
             <li>Copy the token it gives you and paste it here.</li>
           </ol>
         )}
+        <button type="button" className="notify-guide-link" onClick={() => setGuide(true)}>{tg.token_set ? "Show the setup guide" : "New to this? Watch the step by step guide"}</button>
         <div className="form-group stacked">
           <label className="form-row"><span>Bot token</span>
             <input type="password" autoComplete="off" spellCheck={false} value={token} onChange={(e) => setToken(e.target.value)} placeholder={tg.token_set ? "Saved" : "123456789:AA…"} />
@@ -166,6 +169,8 @@ export default function NotificationsSection() {
         )}
         {s.status.discord.ok === false && <p className="note bad">{s.status.discord.error}</p>}
       </div>
+
+      {guide && <TelegramGuide onClose={() => setGuide(false)} />}
 
       {msg && <p className={`note ${msg.bad ? "bad" : ""}`}>{msg.text}</p>}
 
