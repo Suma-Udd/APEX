@@ -632,3 +632,79 @@ select option { background: var(--raised); color: var(--text); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* ── Telegram setup guide ──────────────────────────────────────────── */
+.guide-backdrop { z-index: 60; }
+.sheet.guide { width: min(460px, calc(100vw - 32px)); gap: 12px; overflow-x: hidden; }
+.guide-count { font-size: 12px; font-weight: 600; color: var(--text-3); }
+.guide-progress { height: 3px; border-radius: 3px; background: var(--fill); overflow: hidden; margin-top: -6px; }
+.guide-progress i { display: block; height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.45s var(--ease); }
+.guide-step { display: flex; flex-direction: column; gap: 8px; }
+.guide-step.fwd { animation: guide-in-r 0.38s var(--ease); }
+.guide-step.back { animation: guide-in-l 0.38s var(--ease); }
+@keyframes guide-in-r { from { opacity: 0; transform: translateX(28px); } }
+@keyframes guide-in-l { from { opacity: 0; transform: translateX(-28px); } }
+.guide-step h2 { margin: 4px 0 0; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+.guide-body { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-2); }
+.guide-body code, .tg-bubble code { font-family: var(--mono); font-size: 0.92em; padding: 1px 5px; border-radius: 5px; background: var(--fill-2); }
+.guide-stage { height: 236px; border-radius: 12px; background: var(--fill); display: grid; place-items: center; overflow: hidden; cursor: pointer; padding: 14px; }
+.guide-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 4px; }
+.guide-dots { display: flex; gap: 6px; }
+.guide-dots button { width: 7px; height: 7px; padding: 0; border: 0; border-radius: 4px; background: var(--hairline-2); cursor: pointer; transition: width 0.3s var(--ease), background 0.3s var(--ease); }
+.guide-dots button.done { background: color-mix(in srgb, var(--accent) 45%, transparent); }
+.guide-dots button.on { width: 20px; background: var(--accent); }
+.notify-guide-link { align-self: flex-start; background: none; border: 0; padding: 0; color: var(--accent); font: inherit; font-size: 12px; cursor: pointer; }
+.notify-guide-link:hover { text-decoration: underline; }
+
+/* Scene pieces. Every animated bit waits for its own --d delay. */
+.tg-phone, .tg-apex { width: 100%; max-width: 300px; height: 100%; display: flex; flex-direction: column; gap: 8px; border-radius: 12px; background: var(--raised); box-shadow: 0 0 0 0.5px var(--hairline-2); padding: 10px; overflow: hidden; position: relative; cursor: default; }
+.tg-apex { justify-content: center; padding: 14px; gap: 10px; }
+.tg-bar { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--hairline); }
+.tg-avatar { width: 28px; height: 28px; flex: none; border-radius: 50%; display: grid; place-items: center; font-size: 10px; font-weight: 700; color: #fff; background: var(--accent); }
+.tg-avatar.dim { background: var(--text-3); }
+.tg-who { display: flex; flex-direction: column; min-width: 0; font-size: 12px; }
+.tg-who small { color: var(--text-3); font-size: 11px; }
+.tg-check { display: inline-grid; place-items: center; width: 13px; height: 13px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 8px; font-style: normal; vertical-align: 1px; margin-left: 2px; }
+.tg-chat { display: flex; flex-direction: column; gap: 6px; justify-content: flex-end; flex: 1; min-height: 0; overflow: hidden; }
+.tg-bubble { max-width: 84%; padding: 6px 10px; border-radius: 14px; font-size: 12px; line-height: 1.4; opacity: 0; animation: bubble 0.35s var(--ease) var(--d) forwards; overflow-wrap: anywhere; }
+.tg-bubble.me { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 4px; transform-origin: bottom right; }
+.tg-bubble.them { align-self: flex-start; background: var(--fill-2); border-bottom-left-radius: 4px; transform-origin: bottom left; }
+.tg-bubble.me code { background: rgba(255, 255, 255, 0.2); }
+@keyframes bubble { from { opacity: 0; transform: translateY(8px) scale(0.92); } to { opacity: 1; transform: none; } }
+.tg-token { display: inline-block; margin: 3px 0; padding: 2px 6px; border-radius: 5px; font-family: var(--mono); font-size: 10.5px; color: var(--accent); background: var(--accent-soft); animation: token-hl 0.6s var(--ease) 1.1s both; }
+@keyframes token-hl { 0% { box-shadow: 0 0 0 0 var(--accent); } 40% { box-shadow: 0 0 0 2px var(--accent); } 100% { box-shadow: 0 0 0 0 transparent; } }
+.tg-copied { position: absolute; left: 50%; bottom: 14px; padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; color: var(--bg); background: var(--text); opacity: 0; transform: translateX(-50%); animation: toast-up 1.6s var(--ease) var(--d) forwards; }
+@keyframes toast-up { 0% { opacity: 0; transform: translate(-50%, 10px); } 15%, 75% { opacity: 1; transform: translate(-50%, 0); } 100% { opacity: 0; transform: translate(-50%, 0); } }
+.tg-search { height: 30px; border-radius: 8px; background: var(--fill-2); display: flex; align-items: center; padding: 0 10px; font-size: 12px; }
+.tg-typed { display: inline-block; overflow: hidden; white-space: nowrap; width: 0; border-right: 1.5px solid var(--accent); animation: typing 0.9s steps(var(--n)) 0.25s forwards, caret 0.8s step-end 4; }
+@keyframes typing { to { width: calc(var(--n) * 1ch + 2px); } }
+@keyframes caret { 50% { border-color: transparent; } }
+.tg-result { display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 8px; opacity: 0; animation: bubble 0.35s var(--ease) var(--d) forwards, row-hl 0.5s var(--ease) 2.15s forwards; }
+.tg-result.ghost { animation: bubble 0.35s var(--ease) var(--d) forwards; }
+.tg-result.ghost b { color: var(--text-3); font-weight: 500; }
+@keyframes row-hl { to { background: var(--accent-soft); } }
+.tg-tap { position: absolute; top: 58px; left: 34px; width: 26px; height: 26px; border-radius: 50%; background: var(--text); opacity: 0; animation: tap 0.6s var(--ease) var(--d) forwards; }
+@keyframes tap { 0% { opacity: 0; transform: scale(1.6); } 40% { opacity: 0.22; transform: scale(1); } 100% { opacity: 0; transform: scale(0.8); } }
+.tg-sys { margin: 6px 0 0; font-size: 11px; line-height: 1.4; text-align: center; color: var(--text-3); opacity: 0; animation: bubble 0.4s var(--ease) var(--d) forwards; }
+.tg-apex-head { display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
+.tg-field { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; color: var(--text-2); padding: 6px 0; border-top: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline); }
+.tg-input { flex: 1; text-align: right; overflow: hidden; }
+.tg-dots { display: inline-block; overflow: hidden; white-space: nowrap; vertical-align: bottom; max-width: 0; letter-spacing: 1px; color: var(--text); animation: paste 0.35s var(--ease) var(--d) forwards; }
+@keyframes paste { to { max-width: 160px; } }
+.tg-apex-row { display: flex; justify-content: flex-end; }
+.tg-btn { display: inline-flex; align-items: center; height: 26px; padding: 0 12px; border-radius: 7px; font-size: 12px; background: var(--fill-2); }
+.tg-btn.press { background: var(--accent); color: #fff; animation: press 0.35s var(--ease) var(--d); }
+@keyframes press { 50% { transform: scale(0.92); filter: brightness(0.9); } }
+.tg-btn.pick { animation: pick 0.4s var(--ease) var(--d) forwards; }
+@keyframes pick { 50% { transform: scale(0.94); } to { background: var(--accent); color: #fff; } }
+.tg-apex-ok { opacity: 0; animation: bubble 0.35s var(--ease) var(--d) forwards; font-size: 12px; }
+.tg-chats { display: flex; gap: 6px; flex-wrap: wrap; }
+.tg-notif { display: flex; align-items: center; gap: 9px; padding: 9px 10px; border-radius: 12px; background: var(--chrome); box-shadow: var(--shadow); font-size: 12px; opacity: 0; animation: notif 0.5s var(--ease) var(--d) forwards; margin-top: 6px; }
+.tg-notif-body { display: flex; flex-direction: column; min-width: 0; }
+.tg-notif-body span { color: var(--text-2); }
+.tg-notif-body em { font-style: normal; color: var(--up); font-weight: 600; }
+@keyframes notif { from { opacity: 0; transform: translateY(-14px) scale(0.96); } to { opacity: 1; transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .guide-step, .guide-step *, .guide-stage * { animation-duration: 0.01ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; }
+}
